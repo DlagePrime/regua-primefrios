@@ -35,6 +35,24 @@ function normalizarPerfil(perfil: string | null | undefined): PerfilSistema {
   return perfil === 'master' ? 'master' : 'vendedor'
 }
 
+function formatarData(data?: string | null) {
+  if (!data) return '-'
+
+  const parsed = new Date(data)
+  if (Number.isNaN(parsed.getTime())) return data
+
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(parsed)
+}
+
+const inputClassName =
+  'rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-[rgba(81,150,206,0.5)] focus:bg-white/[0.1] focus:ring-1 focus:ring-[rgba(81,150,206,0.35)]'
+
+const panelClassName =
+  'rounded-[26px] border border-white/10 bg-white/[0.06] p-5 shadow-[0_18px_40px_rgba(0,0,0,0.14)] backdrop-blur-xl'
+
 export default function UsuariosPage() {
   const router = useRouter()
 
@@ -280,343 +298,427 @@ export default function UsuariosPage() {
   }, [])
 
   return (
-    <main style={{ padding: 24, fontFamily: 'Arial, sans-serif', color: '#111' }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-        }}
-      >
-        <h1 style={{ margin: 0 }}>Usuários da Dashboard</h1>
-
-        <button
-          onClick={() => router.push('/')}
-          style={{
-            padding: '10px 14px',
-            border: 'none',
-            borderRadius: 8,
-            cursor: 'pointer',
-            backgroundColor: '#444',
-            color: '#fff',
-          }}
-        >
-          Voltar
-        </button>
-      </div>
-
-      {perfilUsuario && (
-        <div
-          style={{
-            marginBottom: 16,
-            padding: 12,
-            border: '1px solid #ddd',
-            borderRadius: 10,
-            backgroundColor: '#fff',
-          }}
-        >
-          <div><strong>Usuário:</strong> {perfilUsuario.nome || perfilUsuario.email || '-'}</div>
-          <div><strong>Perfil:</strong> {perfilUsuario.perfil}</div>
-        </div>
-      )}
-
-      <div
-        style={{
-          marginBottom: 20,
-          padding: 16,
-          border: '1px solid #ddd',
-          borderRadius: 10,
-          backgroundColor: '#fff',
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Cadastrar usuário</h2>
-
-        <form onSubmit={criarUsuario} style={{ display: 'grid', gap: 12 }}>
-          <input
-            type="text"
-            placeholder="Nome"
-            value={nome}
-            onChange={(e) => setNome(e.target.value)}
-            required
-            style={{
-              padding: 10,
-              border: '1px solid #ccc',
-              borderRadius: 8,
-            }}
-          />
-
-          <input
-            type="email"
-            placeholder="E-mail"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{
-              padding: 10,
-              border: '1px solid #ccc',
-              borderRadius: 8,
-            }}
-          />
-
-          <input
-            type="password"
-            placeholder="Senha"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{
-              padding: 10,
-              border: '1px solid #ccc',
-              borderRadius: 8,
-            }}
-          />
-
-          <select
-            value={perfil}
-            onChange={(e) => setPerfil(normalizarPerfil(e.target.value))}
-            style={{
-              padding: 10,
-              border: '1px solid #ccc',
-              borderRadius: 8,
-            }}
-          >
-            <option value="vendedor">Vendedor</option>
-            <option value="master">Master</option>
-          </select>
-
-          {perfil === 'vendedor' && (
-            <input
-              type="text"
-              placeholder="Nome do vendedor exatamente igual ao cadastro"
-              value={nomeVendedor}
-              onChange={(e) => setNomeVendedor(e.target.value)}
-              required
-              style={{
-                padding: 10,
-                border: '1px solid #ccc',
-                borderRadius: 8,
-              }}
-            />
-          )}
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={ativo}
-              onChange={(e) => setAtivo(e.target.checked)}
-            />
-            Usuário ativo
-          </label>
-
-          <button
-            type="submit"
-            disabled={salvando}
-            style={{
-              padding: '10px 14px',
-              border: 'none',
-              borderRadius: 8,
-              cursor: salvando ? 'not-allowed' : 'pointer',
-              backgroundColor: salvando ? '#999' : '#1d4ed8',
-              color: '#fff',
-            }}
-          >
-            {salvando ? 'Salvando...' : 'Cadastrar usuário'}
-          </button>
-        </form>
-      </div>
-
-      {carregando && <p>Carregando usuários...</p>}
-
-      {mensagem && (
-        <div style={{ color: 'green', marginBottom: 16 }}>
-          <strong>{mensagem}</strong>
-        </div>
-      )}
-
-      {erro && (
-        <div style={{ color: 'red', marginBottom: 16 }}>
-          <strong>Erro:</strong> {erro}
-        </div>
-      )}
-
-      {!carregando && !erro && usuarios.length === 0 && (
-        <div
-          style={{
-            padding: 16,
-            border: '1px solid #ddd',
-            borderRadius: 10,
-            backgroundColor: '#fff',
-          }}
-        >
-          Nenhum usuário encontrado.
-        </div>
-      )}
-
-      {!carregando && !erro && usuarios.length > 0 && (
-        <div style={{ display: 'grid', gap: 12 }}>
-          {usuarios.map((usuario) => {
-            const alterandoStatus = salvandoStatusId === usuario.id
-            const salvandoEdicao = salvandoEdicaoId === usuario.id
-            const ehUsuarioLogado = perfilUsuario?.id === usuario.id
-            const estaEditando = usuarioEditandoId === usuario.id
-            const usuarioTemPerfilInvalido = !perfilValido(usuario.perfil)
-
-            return (
-              <div
-                key={usuario.id}
-                style={{
-                  border: '1px solid #ddd',
-                  borderRadius: 10,
-                  padding: 16,
-                  backgroundColor: '#fff',
-                }}
-              >
-                <div><strong>Nome:</strong> {usuario.nome || '-'}</div>
-                <div><strong>E-mail:</strong> {usuario.email || '-'}</div>
-                <div>
-                  <strong>Perfil:</strong>{' '}
-                  {usuarioTemPerfilInvalido ? `${usuario.perfil} (inválido)` : usuario.perfil}
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(81,150,206,0.14),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(164,37,39,0.16),_transparent_22%),linear-gradient(180deg,_rgba(40,47,69,0.88)_0%,_rgba(40,24,32,0.78)_52%,_rgba(69,20,27,0.72)_100%)] text-slate-100">
+      <div className="mx-auto max-w-[1550px] px-4 py-4 sm:px-6 lg:px-8">
+        <div className="rounded-[30px] border border-white/10 bg-[rgba(40,47,69,0.22)] shadow-[0_30px_90px_rgba(0,0,0,0.18)] backdrop-blur-xl">
+          <div className="border-b border-white/10 px-5 py-5 sm:px-8">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+              <div className="max-w-3xl">
+                <div className="mb-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.3em] text-[#d8efff]/80">
+                  <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1">
+                    Prime Frios
+                  </span>
+                  <span className="rounded-full border border-[rgba(81,150,206,0.25)] bg-[rgba(81,150,206,0.14)] px-3 py-1 text-[#d7eeff]">
+                    Gestão de usuários
+                  </span>
+                  <span className="rounded-full border border-[rgba(254,132,146,0.25)] bg-[rgba(254,132,146,0.14)] px-3 py-1 text-[#ffe1e4]">
+                    Acesso master
+                  </span>
                 </div>
-                <div><strong>Vendedor:</strong> {usuario.nome_vendedor || '-'}</div>
-                <div><strong>Ativo:</strong> {usuario.ativo === true ? 'Sim' : 'Não'}</div>
-                <div><strong>Criado em:</strong> {usuario.criado_em || '-'}</div>
+                <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                  Controle de acesso no mesmo padrão da operação
+                </h1>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200/80">
+                  Cadastre, edite e acompanhe os usuários internos com a mesma
+                  linguagem visual da dashboard principal, mantendo foco em
+                  segurança, vínculo com vendedor e status de acesso.
+                </p>
+              </div>
 
-                <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => alternarStatusUsuario(usuario)}
-                    disabled={alterandoStatus || ehUsuarioLogado || estaEditando}
-                    style={{
-                      padding: '10px 14px',
-                      border: 'none',
-                      borderRadius: 8,
-                      cursor:
-                        alterandoStatus || ehUsuarioLogado || estaEditando
-                          ? 'not-allowed'
-                          : 'pointer',
-                      backgroundColor: ehUsuarioLogado
-                        ? '#999'
-                        : usuario.ativo
-                          ? '#b91c1c'
-                          : '#15803d',
-                      color: '#fff',
-                    }}
-                  >
-                    {alterandoStatus
-                      ? 'Salvando...'
-                      : ehUsuarioLogado
-                        ? 'Usuário atual'
-                        : usuario.ativo
-                          ? 'Desativar usuário'
-                          : 'Ativar usuário'}
-                  </button>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-4 text-sm text-slate-200/80">
+                  {carregando ? 'Carregando usuários...' : `${usuarios.length} usuários disponíveis`}
+                </div>
+                <button
+                  onClick={() => router.push('/')}
+                  className="rounded-2xl border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.14)] px-4 py-4 text-sm font-medium text-[#d7eeff] transition hover:bg-[rgba(81,150,206,0.2)]"
+                >
+                  Voltar para a dashboard
+                </button>
+              </div>
+            </div>
+          </div>
 
-                  {!ehUsuarioLogado && !estaEditando && (
-                    <button
-                      onClick={() => iniciarEdicao(usuario)}
-                      style={{
-                        padding: '10px 14px',
-                        border: 'none',
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        backgroundColor: '#1d4ed8',
-                        color: '#fff',
-                      }}
-                    >
-                      Editar usuário
-                    </button>
-                  )}
+          <div className="grid gap-6 px-5 py-5 sm:px-8 xl:grid-cols-[minmax(0,1.45fr)_340px]">
+            <div className="space-y-6">
+              {mensagem && (
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+                  {mensagem}
+                </div>
+              )}
+
+              {erro && (
+                <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                  {erro}
+                </div>
+              )}
+
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-[26px] border border-white/10 bg-white/[0.06] p-5">
+                  <div className="text-xs uppercase tracking-[0.28em] text-slate-400">
+                    Total de usuários
+                  </div>
+                  <div className="mt-4 text-3xl font-semibold text-white">{usuarios.length}</div>
+                  <div className="mt-2 text-sm text-slate-300/80">
+                    Base completa da operação interna
+                  </div>
+                </div>
+                <div className="rounded-[26px] border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.12)] p-5">
+                  <div className="text-xs uppercase tracking-[0.28em] text-[#d8efff]/80">
+                    Usuários ativos
+                  </div>
+                  <div className="mt-4 text-3xl font-semibold text-white">
+                    {usuarios.filter((usuario) => usuario.ativo).length}
+                  </div>
+                  <div className="mt-2 text-sm text-slate-300/80">
+                    Acessos habilitados no sistema
+                  </div>
+                </div>
+                <div className="rounded-[26px] border border-[rgba(254,132,146,0.24)] bg-[rgba(254,132,146,0.12)] p-5">
+                  <div className="text-xs uppercase tracking-[0.28em] text-[#ffe1e4]/80">
+                    Usuários master
+                  </div>
+                  <div className="mt-4 text-3xl font-semibold text-white">
+                    {usuarios.filter((usuario) => usuario.perfil === 'master').length}
+                  </div>
+                  <div className="mt-2 text-sm text-slate-300/80">
+                    Visão global e gestão completa
+                  </div>
+                </div>
+                <div className="rounded-[26px] border border-[rgba(164,37,39,0.24)] bg-[rgba(164,37,39,0.12)] p-5">
+                  <div className="text-xs uppercase tracking-[0.28em] text-[#ffd4da]/80">
+                    Usuários vendedores
+                  </div>
+                  <div className="mt-4 text-3xl font-semibold text-white">
+                    {usuarios.filter((usuario) => usuario.perfil === 'vendedor').length}
+                  </div>
+                  <div className="mt-2 text-sm text-slate-300/80">
+                    Perfis vinculados às carteiras
+                  </div>
+                </div>
+              </section>
+
+              <section className={panelClassName}>
+                <div className="mb-5 flex items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">Usuários cadastrados</h2>
+                    <p className="mt-1 text-sm text-slate-300/75">
+                      Gerencie perfil, vínculo de vendedor e status sem sair do
+                      padrão visual da operação.
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-300">
+                    {usuarios.length} registros
+                  </div>
                 </div>
 
-                {estaEditando && (
-                  <div
-                    style={{
-                      marginTop: 16,
-                      padding: 14,
-                      border: '1px solid #ddd',
-                      borderRadius: 10,
-                      backgroundColor: '#fafafa',
-                      display: 'grid',
-                      gap: 12,
-                    }}
-                  >
-                    <div>
-                      <strong>Editando usuário</strong>
-                    </div>
-
-                    {usuarioTemPerfilInvalido && (
-                      <div style={{ color: '#b45309' }}>
-                        <strong>Aviso:</strong> o perfil salvo estava inválido. Escolha o perfil correto e salve.
-                      </div>
-                    )}
-
-                    <select
-                      value={perfilEdicao}
-                      onChange={(e) => setPerfilEdicao(normalizarPerfil(e.target.value))}
-                      style={{
-                        padding: 10,
-                        border: '1px solid #ccc',
-                        borderRadius: 8,
-                      }}
-                    >
-                      <option value="vendedor">Vendedor</option>
-                      <option value="master">Master</option>
-                    </select>
-
-                    {perfilEdicao === 'vendedor' && (
-                      <input
-                        type="text"
-                        placeholder="Nome do vendedor exatamente igual ao cadastro"
-                        value={nomeVendedorEdicao}
-                        onChange={(e) => setNomeVendedorEdicao(e.target.value)}
-                        style={{
-                          padding: 10,
-                          border: '1px solid #ccc',
-                          borderRadius: 8,
-                        }}
-                      />
-                    )}
-
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      <button
-                        onClick={() => salvarEdicaoUsuario(usuario)}
-                        disabled={salvandoEdicao}
-                        style={{
-                          padding: '10px 14px',
-                          border: 'none',
-                          borderRadius: 8,
-                          cursor: salvandoEdicao ? 'not-allowed' : 'pointer',
-                          backgroundColor: salvandoEdicao ? '#999' : '#15803d',
-                          color: '#fff',
-                        }}
-                      >
-                        {salvandoEdicao ? 'Salvando...' : 'Salvar edição'}
-                      </button>
-
-                      <button
-                        onClick={cancelarEdicao}
-                        disabled={salvandoEdicao}
-                        style={{
-                          padding: '10px 14px',
-                          border: 'none',
-                          borderRadius: 8,
-                          cursor: salvandoEdicao ? 'not-allowed' : 'pointer',
-                          backgroundColor: '#444',
-                          color: '#fff',
-                        }}
-                      >
-                        Cancelar
-                      </button>
-                    </div>
+                {carregando && (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-6 text-sm text-slate-300">
+                    Carregando usuários...
                   </div>
                 )}
-              </div>
-            )
-          })}
+
+                {!carregando && usuarios.length === 0 && !erro && (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-6 text-sm text-slate-300">
+                    Nenhum usuário encontrado.
+                  </div>
+                )}
+
+                {!carregando && usuarios.length > 0 && (
+                  <div className="grid gap-4">
+                    {usuarios.map((usuario) => {
+                      const alterandoStatus = salvandoStatusId === usuario.id
+                      const salvandoEdicao = salvandoEdicaoId === usuario.id
+                      const ehUsuarioLogado = perfilUsuario?.id === usuario.id
+                      const estaEditando = usuarioEditandoId === usuario.id
+                      const usuarioTemPerfilInvalido = !perfilValido(usuario.perfil)
+
+                      return (
+                        <article
+                          key={usuario.id}
+                          className="rounded-[26px] border border-white/10 bg-[rgba(40,47,69,0.24)] p-5"
+                        >
+                          <div className="flex flex-col gap-4 xl:flex-row xl:justify-between">
+                            <div className="flex-1">
+                              <div className="flex flex-wrap items-center gap-3">
+                                <h3 className="text-xl font-semibold text-white">
+                                  {usuario.nome || '-'}
+                                </h3>
+                                <span
+                                  className={`rounded-full border px-3 py-1 text-xs ${
+                                    usuario.ativo
+                                      ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
+                                      : 'border-[rgba(164,37,39,0.3)] bg-[rgba(164,37,39,0.14)] text-[#ffd4da]'
+                                  }`}
+                                >
+                                  {usuario.ativo ? 'Ativo' : 'Inativo'}
+                                </span>
+                                <span
+                                  className={`rounded-full px-3 py-1 text-xs ${
+                                    usuario.perfil === 'master'
+                                      ? 'border border-[rgba(254,132,146,0.28)] bg-[rgba(254,132,146,0.16)] text-[#ffe1e4]'
+                                      : 'border border-[rgba(81,150,206,0.35)] bg-[rgba(81,150,206,0.18)] text-[#cfeaff]'
+                                  }`}
+                                >
+                                  {usuarioTemPerfilInvalido
+                                    ? `${usuario.perfil} (inválido)`
+                                    : usuario.perfil}
+                                </span>
+                                {ehUsuarioLogado && (
+                                  <span className="rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-xs text-slate-200">
+                                    Usuário atual
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-4">
+                                <div>
+                                  <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                                    E-mail
+                                  </div>
+                                  <div className="mt-1">{usuario.email || '-'}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                                    Vendedor vinculado
+                                  </div>
+                                  <div className="mt-1">{usuario.nome_vendedor || '-'}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                                    Criado em
+                                  </div>
+                                  <div className="mt-1">{formatarData(usuario.criado_em)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                                    ID
+                                  </div>
+                                  <div className="mt-1 truncate">{usuario.id}</div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="grid gap-3 xl:w-[240px]">
+                              <button
+                                onClick={() => alternarStatusUsuario(usuario)}
+                                disabled={alterandoStatus || ehUsuarioLogado || estaEditando}
+                                className={`rounded-2xl px-4 py-3 text-sm font-medium text-white transition ${
+                                  alterandoStatus || ehUsuarioLogado || estaEditando
+                                    ? 'cursor-not-allowed bg-white/10 text-slate-400'
+                                    : usuario.ativo
+                                      ? 'bg-[rgba(164,37,39,0.92)] hover:bg-[rgba(164,37,39,1)]'
+                                      : 'bg-[rgba(81,150,206,0.92)] hover:bg-[rgba(81,150,206,1)]'
+                                }`}
+                              >
+                                {alterandoStatus
+                                  ? 'Salvando...'
+                                  : ehUsuarioLogado
+                                    ? 'Usuário atual'
+                                    : usuario.ativo
+                                      ? 'Desativar usuário'
+                                      : 'Ativar usuário'}
+                              </button>
+
+                              {!ehUsuarioLogado && !estaEditando && (
+                                <button
+                                  onClick={() => iniciarEdicao(usuario)}
+                                  className="rounded-2xl border border-[rgba(81,150,206,0.3)] bg-[rgba(81,150,206,0.14)] px-4 py-3 text-sm text-[#d7eeff] transition hover:bg-[rgba(81,150,206,0.2)]"
+                                >
+                                  Editar usuário
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {estaEditando && (
+                            <div className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
+                              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <div className="text-xs uppercase tracking-[0.28em] text-slate-400">
+                                    Edição
+                                  </div>
+                                  <div className="mt-2 text-lg font-semibold text-white">
+                                    Ajustar perfil e vínculo
+                                  </div>
+                                </div>
+                                {usuarioTemPerfilInvalido && (
+                                  <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                                    O perfil salvo estava inválido. Escolha o correto e salve.
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <select
+                                  value={perfilEdicao}
+                                  onChange={(e) => setPerfilEdicao(normalizarPerfil(e.target.value))}
+                                  className={inputClassName}
+                                >
+                                  <option value="vendedor">Vendedor</option>
+                                  <option value="master">Master</option>
+                                </select>
+
+                                {perfilEdicao === 'vendedor' && (
+                                  <input
+                                    type="text"
+                                    placeholder="Nome do vendedor exatamente igual ao cadastro"
+                                    value={nomeVendedorEdicao}
+                                    onChange={(e) => setNomeVendedorEdicao(e.target.value)}
+                                    className={inputClassName}
+                                  />
+                                )}
+                              </div>
+
+                              <div className="mt-4 flex flex-wrap gap-3">
+                                <button
+                                  onClick={() => salvarEdicaoUsuario(usuario)}
+                                  disabled={salvandoEdicao}
+                                  className={`rounded-2xl px-4 py-3 text-sm font-medium text-white transition ${
+                                    salvandoEdicao
+                                      ? 'cursor-not-allowed bg-white/10 text-slate-400'
+                                      : 'bg-[rgba(81,150,206,0.92)] hover:bg-[rgba(81,150,206,1)]'
+                                  }`}
+                                >
+                                  {salvandoEdicao ? 'Salvando...' : 'Salvar edição'}
+                                </button>
+
+                                <button
+                                  onClick={cancelarEdicao}
+                                  disabled={salvandoEdicao}
+                                  className={`rounded-2xl border px-4 py-3 text-sm transition ${
+                                    salvandoEdicao
+                                      ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
+                                      : 'border-white/10 bg-white/[0.06] text-slate-200 hover:bg-white/[0.1]'
+                                  }`}
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </article>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <aside className="space-y-6">
+              <section className={panelClassName}>
+                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">
+                  Perfil logado
+                </div>
+                <div className="mt-4 grid gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+                    <div className="text-sm text-slate-400">Usuário</div>
+                    <div className="mt-1 font-medium text-white">
+                      {perfilUsuario?.nome || perfilUsuario?.email || '-'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+                    <div className="text-sm text-slate-400">Perfil</div>
+                    <div className="mt-1 font-medium uppercase text-white">
+                      {perfilUsuario?.perfil || '-'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+                    <div className="text-sm text-slate-400">Vendedor vinculado</div>
+                    <div className="mt-1 font-medium text-white">
+                      {perfilUsuario?.nome_vendedor || 'Não se aplica'}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className={panelClassName}>
+                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">
+                  Cadastrar usuário
+                </div>
+                <div className="mt-2 text-lg font-semibold text-white">
+                  Novo acesso interno
+                </div>
+                <p className="mt-2 text-sm text-slate-300/75">
+                  Crie perfis master ou vendedor e vincule corretamente quem deve
+                  enxergar cada carteira.
+                </p>
+
+                <form onSubmit={criarUsuario} className="mt-5 grid gap-3">
+                  <input
+                    type="text"
+                    placeholder="Nome"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    required
+                    className={inputClassName}
+                  />
+
+                  <input
+                    type="email"
+                    placeholder="E-mail"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className={inputClassName}
+                  />
+
+                  <input
+                    type="password"
+                    placeholder="Senha"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className={inputClassName}
+                  />
+
+                  <select
+                    value={perfil}
+                    onChange={(e) => setPerfil(normalizarPerfil(e.target.value))}
+                    className={inputClassName}
+                  >
+                    <option value="vendedor">Vendedor</option>
+                    <option value="master">Master</option>
+                  </select>
+
+                  {perfil === 'vendedor' && (
+                    <input
+                      type="text"
+                      placeholder="Nome do vendedor exatamente igual ao cadastro"
+                      value={nomeVendedor}
+                      onChange={(e) => setNomeVendedor(e.target.value)}
+                      required
+                      className={inputClassName}
+                    />
+                  )}
+
+                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={ativo}
+                      onChange={(e) => setAtivo(e.target.checked)}
+                      className="h-4 w-4 rounded border-white/20 bg-transparent accent-[#5196CE]"
+                    />
+                    Usuário ativo
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={salvando}
+                    className={`rounded-2xl px-4 py-3 text-sm font-medium text-white transition ${
+                      salvando
+                        ? 'cursor-not-allowed bg-white/10 text-slate-400'
+                        : 'bg-[rgba(81,150,206,0.92)] hover:bg-[rgba(81,150,206,1)]'
+                    }`}
+                  >
+                    {salvando ? 'Salvando...' : 'Cadastrar usuário'}
+                  </button>
+                </form>
+              </section>
+            </aside>
+          </div>
         </div>
-      )}
+      </div>
     </main>
   )
 }
