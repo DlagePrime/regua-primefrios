@@ -62,6 +62,8 @@ export default function UsuariosPage() {
   const [salvando, setSalvando] = useState(false)
   const [salvandoStatusId, setSalvandoStatusId] = useState<string | null>(null)
   const [salvandoEdicaoId, setSalvandoEdicaoId] = useState<string | null>(null)
+  const [salvandoSenhaId, setSalvandoSenhaId] = useState<string | null>(null)
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
 
   const [perfilUsuario, setPerfilUsuario] = useState<PerfilUsuario | null>(null)
   const [usuarios, setUsuarios] = useState<UsuarioDashboard[]>([])
@@ -76,6 +78,7 @@ export default function UsuariosPage() {
   const [usuarioEditandoId, setUsuarioEditandoId] = useState<string | null>(null)
   const [perfilEdicao, setPerfilEdicao] = useState<PerfilSistema>('vendedor')
   const [nomeVendedorEdicao, setNomeVendedorEdicao] = useState('')
+  const [novaSenhaEdicao, setNovaSenhaEdicao] = useState('')
 
   async function carregarPagina() {
     setCarregando(true)
@@ -228,12 +231,14 @@ export default function UsuariosPage() {
     setUsuarioEditandoId(usuario.id)
     setPerfilEdicao(normalizarPerfil(usuario.perfil))
     setNomeVendedorEdicao(usuario.nome_vendedor || '')
+    setNovaSenhaEdicao('')
   }
 
   function cancelarEdicao() {
     setUsuarioEditandoId(null)
     setPerfilEdicao('vendedor')
     setNomeVendedorEdicao('')
+    setNovaSenhaEdicao('')
   }
 
   async function salvarEdicaoUsuario(usuario: UsuarioDashboard) {
@@ -290,7 +295,86 @@ export default function UsuariosPage() {
     setUsuarioEditandoId(null)
     setPerfilEdicao('vendedor')
     setNomeVendedorEdicao('')
+    setNovaSenhaEdicao('')
     setSalvandoEdicaoId(null)
+  }
+
+  async function trocarSenhaUsuario(usuario: UsuarioDashboard) {
+    setMensagem(null)
+    setErro(null)
+
+    if (perfilUsuario?.id === usuario.id) {
+      setErro('Você não pode trocar a sua própria senha por esta tela.')
+      return
+    }
+
+    if (novaSenhaEdicao.trim().length < 6) {
+      setErro('A nova senha precisa ter pelo menos 6 caracteres.')
+      return
+    }
+
+    setSalvandoSenhaId(usuario.id)
+
+    const response = await fetch(`/api/usuarios/${usuario.id}/senha`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        password: novaSenhaEdicao.trim(),
+      }),
+    })
+
+    const resultado = await response.json()
+
+    if (!response.ok) {
+      setErro(resultado.error || 'Erro ao atualizar senha do usuário.')
+      setSalvandoSenhaId(null)
+      return
+    }
+
+    setMensagem('Senha atualizada com sucesso.')
+    setNovaSenhaEdicao('')
+    setSalvandoSenhaId(null)
+  }
+
+  async function excluirUsuario(usuario: UsuarioDashboard) {
+    setMensagem(null)
+    setErro(null)
+
+    if (perfilUsuario?.id === usuario.id) {
+      setErro('Você não pode excluir o seu próprio usuário.')
+      return
+    }
+
+    const confirmado = window.confirm(
+      `Excluir o usuário ${usuario.nome || usuario.email || 'selecionado'}? Essa ação remove o acesso no Supabase Auth e no schema omie_core.`
+    )
+
+    if (!confirmado) return
+
+    setExcluindoId(usuario.id)
+
+    const response = await fetch(`/api/usuarios/${usuario.id}`, {
+      method: 'DELETE',
+    })
+
+    const resultado = await response.json()
+
+    if (!response.ok) {
+      setErro(resultado.error || 'Erro ao excluir usuário.')
+      setExcluindoId(null)
+      return
+    }
+
+    setUsuarios((listaAtual) => listaAtual.filter((item) => item.id !== usuario.id))
+
+    if (usuarioEditandoId === usuario.id) {
+      cancelarEdicao()
+    }
+
+    setMensagem('Usuário excluído com sucesso.')
+    setExcluindoId(null)
   }
 
   useEffect(() => {
@@ -429,6 +513,8 @@ export default function UsuariosPage() {
                     {usuarios.map((usuario) => {
                       const alterandoStatus = salvandoStatusId === usuario.id
                       const salvandoEdicao = salvandoEdicaoId === usuario.id
+                      const salvandoSenha = salvandoSenhaId === usuario.id
+                      const excluindo = excluindoId === usuario.id
                       const ehUsuarioLogado = perfilUsuario?.id === usuario.id
                       const estaEditando = usuarioEditandoId === usuario.id
                       const usuarioTemPerfilInvalido = !perfilValido(usuario.perfil)
@@ -502,9 +588,9 @@ export default function UsuariosPage() {
                             <div className="grid gap-3 xl:w-[240px]">
                               <button
                                 onClick={() => alternarStatusUsuario(usuario)}
-                                disabled={alterandoStatus || ehUsuarioLogado || estaEditando}
+                                disabled={alterandoStatus || ehUsuarioLogado || estaEditando || excluindo}
                                 className={`rounded-2xl px-4 py-3 text-sm font-medium text-white transition ${
-                                  alterandoStatus || ehUsuarioLogado || estaEditando
+                                  alterandoStatus || ehUsuarioLogado || estaEditando || excluindo
                                     ? 'cursor-not-allowed bg-white/10 text-slate-400'
                                     : usuario.ativo
                                       ? 'bg-[rgba(164,37,39,0.92)] hover:bg-[rgba(164,37,39,1)]'
@@ -523,9 +609,27 @@ export default function UsuariosPage() {
                               {!ehUsuarioLogado && !estaEditando && (
                                 <button
                                   onClick={() => iniciarEdicao(usuario)}
-                                  className="rounded-2xl border border-[rgba(81,150,206,0.3)] bg-[rgba(81,150,206,0.14)] px-4 py-3 text-sm text-[#d7eeff] transition hover:bg-[rgba(81,150,206,0.2)]"
+                                  disabled={excluindo}
+                                  className={`rounded-2xl border px-4 py-3 text-sm transition ${
+                                    excluindo
+                                      ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
+                                      : 'border-[rgba(81,150,206,0.3)] bg-[rgba(81,150,206,0.14)] text-[#d7eeff] hover:bg-[rgba(81,150,206,0.2)]'
+                                  }`}
                                 >
                                   Editar usuário
+                                </button>
+                              )}
+                              {!ehUsuarioLogado && (
+                                <button
+                                  onClick={() => excluirUsuario(usuario)}
+                                  disabled={estaEditando || excluindo || alterandoStatus}
+                                  className={`rounded-2xl border px-4 py-3 text-sm transition ${
+                                    estaEditando || excluindo || alterandoStatus
+                                      ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
+                                      : 'border-[rgba(164,37,39,0.3)] bg-[rgba(164,37,39,0.14)] text-[#ffd4da] hover:bg-[rgba(164,37,39,0.22)]'
+                                  }`}
+                                >
+                                  {excluindo ? 'Excluindo...' : 'Excluir usuário'}
                                 </button>
                               )}
                             </div>
@@ -585,15 +689,44 @@ export default function UsuariosPage() {
 
                                 <button
                                   onClick={cancelarEdicao}
-                                  disabled={salvandoEdicao}
+                                  disabled={salvandoEdicao || salvandoSenha}
                                   className={`rounded-2xl border px-4 py-3 text-sm transition ${
-                                    salvandoEdicao
+                                    salvandoEdicao || salvandoSenha
                                       ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
                                       : 'border-white/10 bg-white/[0.06] text-slate-200 hover:bg-white/[0.1]'
                                   }`}
                                 >
                                   Cancelar
                                 </button>
+                              </div>
+
+                              <div className="mt-5 rounded-[22px] border border-[rgba(81,150,206,0.16)] bg-[rgba(81,150,206,0.08)] p-4">
+                                <div className="text-xs uppercase tracking-[0.28em] text-[#d8efff]/80">
+                                  Troca de senha
+                                </div>
+                                <div className="mt-2 text-sm text-slate-300/80">
+                                  A nova senha será aplicada diretamente no Supabase Auth.
+                                </div>
+                                <div className="mt-4 flex flex-col gap-3 md:flex-row">
+                                  <input
+                                    type="password"
+                                    placeholder="Nova senha"
+                                    value={novaSenhaEdicao}
+                                    onChange={(e) => setNovaSenhaEdicao(e.target.value)}
+                                    className={`${inputClassName} md:flex-1`}
+                                  />
+                                  <button
+                                    onClick={() => trocarSenhaUsuario(usuario)}
+                                    disabled={salvandoSenha}
+                                    className={`rounded-2xl px-4 py-3 text-sm font-medium text-white transition ${
+                                      salvandoSenha
+                                        ? 'cursor-not-allowed bg-white/10 text-slate-400'
+                                        : 'bg-[rgba(81,150,206,0.92)] hover:bg-[rgba(81,150,206,1)]'
+                                    }`}
+                                  >
+                                    {salvandoSenha ? 'Atualizando...' : 'Trocar senha'}
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           )}
