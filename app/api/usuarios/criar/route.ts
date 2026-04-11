@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { requireMasterUser } from '@/lib/supabase/require-master'
+import { vendedorExisteNaBase } from '@/lib/supabase/validar-vendedor'
 
 async function findAuthUserByEmail(email: string) {
   let page = 1
@@ -61,6 +62,13 @@ export async function POST(request: Request) {
     if (perfil === 'vendedor' && !nomeVendedor) {
       return NextResponse.json(
         { error: 'Informe o nome do vendedor.' },
+        { status: 400 }
+      )
+    }
+
+    if (perfil === 'vendedor' && !(await vendedorExisteNaBase(nomeVendedor))) {
+      return NextResponse.json(
+        { error: 'Escolha um vendedor existente na base de clientes.' },
         { status: 400 }
       )
     }

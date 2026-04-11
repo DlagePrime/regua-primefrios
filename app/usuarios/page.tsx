@@ -67,6 +67,7 @@ export default function UsuariosPage() {
 
   const [perfilUsuario, setPerfilUsuario] = useState<PerfilUsuario | null>(null)
   const [usuarios, setUsuarios] = useState<UsuarioDashboard[]>([])
+  const [vendedoresDisponiveis, setVendedoresDisponiveis] = useState<string[]>([])
 
   const [nome, setNome] = useState('')
   const [email, setEmail] = useState('')
@@ -133,6 +134,22 @@ export default function UsuariosPage() {
     }
 
     setUsuarios(data || [])
+
+    const { data: vendedoresData } = await supabase
+      .schema('omie_core')
+      .from('clientes')
+      .select('nome_vendedor_padrao_snapshot')
+      .not('nome_vendedor_padrao_snapshot', 'is', null)
+
+    setVendedoresDisponiveis(
+      Array.from(
+        new Set(
+          (vendedoresData || [])
+            .map((item) => item.nome_vendedor_padrao_snapshot?.trim())
+            .filter((value): value is string => Boolean(value))
+        )
+      ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    )
     setCarregando(false)
   }
 
@@ -149,6 +166,16 @@ export default function UsuariosPage() {
       perfil,
       nome_vendedor: perfil === 'vendedor' ? nomeVendedor.trim() : '',
       ativo,
+    }
+
+    if (
+      perfil === 'vendedor' &&
+      vendedoresDisponiveis.length > 0 &&
+      !vendedoresDisponiveis.includes(nomeVendedor.trim())
+    ) {
+      setErro('Escolha um vendedor existente na base de clientes.')
+      setSalvando(false)
+      return
     }
 
     const response = await fetch('/api/usuarios/criar', {
@@ -191,16 +218,20 @@ export default function UsuariosPage() {
     const novoStatus = !usuario.ativo
     setSalvandoStatusId(usuario.id)
 
-    const { data, error } = await supabase
-      .schema('omie_core')
-      .from('usuarios_dashboard')
-      .update({ ativo: novoStatus })
-      .eq('id', usuario.id)
-      .select('id, ativo')
-      .single()
+    const response = await fetch(`/api/usuarios/${usuario.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ativo: novoStatus,
+      }),
+    })
 
-    if (error) {
-      setErro(error.message)
+    const resultado = await response.json()
+
+    if (!response.ok) {
+      setErro(resultado.error || 'Erro ao atualizar status do usuário.')
       setSalvandoStatusId(null)
       return
     }
@@ -210,14 +241,14 @@ export default function UsuariosPage() {
         item.id === usuario.id
           ? {
               ...item,
-              ativo: data?.ativo ?? novoStatus,
+              ativo: resultado.usuario?.ativo ?? novoStatus,
             }
           : item
       )
     )
 
     setMensagem(
-      data?.ativo === true
+      resultado.usuario?.ativo === true
         ? 'Usuário ativado com sucesso.'
         : 'Usuário desativado com sucesso.'
     )
@@ -255,6 +286,15 @@ export default function UsuariosPage() {
       return
     }
 
+    if (
+      perfilEdicao === 'vendedor' &&
+      vendedoresDisponiveis.length > 0 &&
+      !vendedoresDisponiveis.includes(nomeVendedorEdicao.trim())
+    ) {
+      setErro('Escolha um vendedor existente na base de clientes.')
+      return
+    }
+
     setSalvandoEdicaoId(usuario.id)
 
     const payload = {
@@ -263,16 +303,18 @@ export default function UsuariosPage() {
         perfilEdicao === 'vendedor' ? nomeVendedorEdicao.trim() : null,
     }
 
-    const { data, error } = await supabase
-      .schema('omie_core')
-      .from('usuarios_dashboard')
-      .update(payload)
-      .eq('id', usuario.id)
-      .select('id, perfil, nome_vendedor')
-      .single()
+    const response = await fetch(`/api/usuarios/${usuario.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
 
-    if (error) {
-      setErro(error.message)
+    const resultado = await response.json()
+
+    if (!response.ok) {
+      setErro(resultado.error || 'Erro ao atualizar usuário.')
       setSalvandoEdicaoId(null)
       return
     }
@@ -282,9 +324,9 @@ export default function UsuariosPage() {
         item.id === usuario.id
           ? {
               ...item,
-              perfil: data?.perfil ?? payload.perfil,
+              perfil: resultado.usuario?.perfil ?? payload.perfil,
               nome_vendedor:
-                data?.nome_vendedor ??
+                resultado.usuario?.nome_vendedor ??
                 (payload.nome_vendedor === null ? null : payload.nome_vendedor),
             }
           : item
@@ -667,6 +709,7 @@ export default function UsuariosPage() {
                                   <input
                                     type="text"
                                     placeholder="Nome do vendedor exatamente igual ao cadastro"
+                                    list="vendedores-disponiveis"
                                     value={nomeVendedorEdicao}
                                     onChange={(e) => setNomeVendedorEdicao(e.target.value)}
                                     className={inputClassName}
@@ -818,11 +861,20 @@ export default function UsuariosPage() {
                     <input
                       type="text"
                       placeholder="Nome do vendedor exatamente igual ao cadastro"
+                      list="vendedores-disponiveis"
                       value={nomeVendedor}
                       onChange={(e) => setNomeVendedor(e.target.value)}
                       required
                       className={inputClassName}
                     />
+                  )}
+
+                  {vendedoresDisponiveis.length > 0 && (
+                    <datalist id="vendedores-disponiveis">
+                      {vendedoresDisponiveis.map((vendedor) => (
+                        <option key={vendedor} value={vendedor} />
+                      ))}
+                    </datalist>
                   )}
 
                   <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
