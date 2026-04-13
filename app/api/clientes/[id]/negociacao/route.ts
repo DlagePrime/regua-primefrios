@@ -48,6 +48,14 @@ function parseCurrency(value: unknown) {
   return Number.isFinite(parsed) ? roundMoney(parsed) : 0
 }
 
+function parseOptionalCurrency(value: unknown) {
+  const normalized = String(value ?? '').trim()
+  if (!normalized) return null
+
+  const parsed = parseCurrency(normalized)
+  return parsed > 0 ? parsed : NaN
+}
+
 function parseDate(value: string | null | undefined) {
   if (!value) return null
 
@@ -106,18 +114,29 @@ function buildParcelas(
   quantidadeParcelas: number,
   frequencia: Frequencia,
   diaSemana: DiaSemana,
-  dataInicio: Date
+  dataInicio: Date,
+  valorParcelaFixa?: number | null
 ) {
   const targetWeekday = diaSemanaMap[diaSemana]
   const primeiraData = nextWeekdayOnOrAfter(dataInicio, targetWeekday)
-  const valorBase = roundMoney(totalDivida / quantidadeParcelas)
+  const parcelas = []
+  let vencimento = primeiraData
+  const quantidadesParcelasGeradas =
+    valorParcelaFixa && valorParcelaFixa > 0
+      ? quantidadeParcelas +
+        (roundMoney(totalDivida - roundMoney(valorParcelaFixa * quantidadeParcelas)) > 0
+          ? 1
+          : 0)
+      : quantidadeParcelas
+
+  const valorBase =
+    valorParcelaFixa && valorParcelaFixa > 0
+      ? roundMoney(valorParcelaFixa)
+      : roundMoney(totalDivida / quantidadeParcelas)
   const totalBase = roundMoney(valorBase * quantidadeParcelas)
   const ajusteFinal = roundMoney(totalDivida - totalBase)
 
-  const parcelas = []
-  let vencimento = primeiraData
-
-  for (let index = 0; index < quantidadeParcelas; index += 1) {
+  for (let index = 0; index < quantidadesParcelasGeradas; index += 1) {
     if (index > 0) {
       if (frequencia === 'semanal') {
         const next = new Date(vencimento)
@@ -135,10 +154,15 @@ function buildParcelas(
     parcelas.push({
       numero_parcela: index + 1,
       vencimento: toDateOnly(vencimento),
-      valor_parcela:
-        index === quantidadeParcelas - 1
+      valor_parcela: (() => {
+        if (valorParcelaFixa && valorParcelaFixa > 0) {
+          return index < quantidadeParcelas ? valorBase : ajusteFinal
+        }
+
+        return index === quantidadeParcelas - 1
           ? roundMoney(valorBase + ajusteFinal)
-          : valorBase,
+          : valorBase
+      })(),
       status_parcela: 'pendente',
     })
   }
@@ -199,6 +223,7 @@ export async function POST(request: Request, context: Params) {
     const frequencia = String(body.frequencia || '').trim() as Frequencia
     const quantidadeParcelas = Number(body.quantidade_parcelas || 0)
     const valorTotalDivida = parseCurrency(body.valor_total_divida)
+    const valorParcela = parseOptionalCurrency(body.valor_parcela)
     const diaSemana = String(body.dia_semana || '').trim() as DiaSemana
     const observacoes = String(body.observacoes || '').trim() || null
     const dataInicio =
@@ -231,10 +256,30 @@ export async function POST(request: Request, context: Params) {
       )
     }
 
+    if (Number.isNaN(valorParcela)) {
+      return NextResponse.json(
+        { error: 'Informe um valor de parcela valido.' },
+        { status: 400 }
+      )
+    }
+
+    if (
+      valorParcela &&
+      roundMoney(valorParcela * quantidadeParcelas) > roundMoney(valorTotalDivida)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'O valor da parcela multiplicado pela quantidade nao pode ultrapassar o total da divida.',
+        },
+        { status: 400 }
+      )
+    }
+
     const { data: cliente, error: clienteError } = await supabaseAdmin
       .schema('omie_core')
       .from('clientes')
-      .select('id, cnpj_cpf, razao_social, em_negociacao')
+      .select('id, cnpj_cpf, razao_social')
       .eq('id', id)
       .single()
 
@@ -264,7 +309,7 @@ export async function POST(request: Request, context: Params) {
       )
     }
 
-    if (negociacaoAtiva || cliente.em_negociacao === true) {
+    if (negociacaoAtiva) {
       return NextResponse.json(
         { error: 'Este cliente ja esta em negociacao ativa.' },
         { status: 400 }
@@ -276,17 +321,19 @@ export async function POST(request: Request, context: Params) {
       quantidadeParcelas,
       frequencia,
       diaSemana,
-      dataInicio
+      dataInicio,
+      valorParcela
     )
 
     const { data: negociacao, error: negociacaoError } = await supabaseAdmin
       .schema('omie_core')
       .from('clientes_negociacoes')
       .insert({
+        cliente_id: cliente.id,
         cnpj_cpf: cliente.cnpj_cpf,
         razao_social: cliente.razao_social,
         frequencia,
-        quantidade_parcelas: quantidadeParcelas,
+        quantidade_parcelas: parcelas.length,
         valor_total_divida: valorTotalDivida,
         data_inicio: toDateOnly(dataInicio),
         data_quitacao_prevista: parcelas[parcelas.length - 1]?.vencimento || null,
@@ -307,6 +354,8 @@ export async function POST(request: Request, context: Params) {
 
     const parcelasPayload = parcelas.map((parcela) => ({
       negociacao_id: negociacao.id,
+      cliente_id: cliente.id,
+      cnpj_cpf: cliente.cnpj_cpf,
       ...parcela,
     }))
 
@@ -324,25 +373,6 @@ export async function POST(request: Request, context: Params) {
 
       return NextResponse.json(
         { error: parcelasError.message || 'Erro ao criar parcelas da negociacao.' },
-        { status: 400 }
-      )
-    }
-
-    const { error: clienteUpdateError } = await supabaseAdmin
-      .schema('omie_core')
-      .from('clientes')
-      .update({ em_negociacao: true })
-      .eq('id', cliente.id)
-
-    if (clienteUpdateError) {
-      await supabaseAdmin
-        .schema('omie_core')
-        .from('clientes_negociacoes')
-        .delete()
-        .eq('id', negociacao.id)
-
-      return NextResponse.json(
-        { error: clienteUpdateError.message || 'Erro ao atualizar status do cliente.' },
         { status: 400 }
       )
     }
@@ -508,7 +538,7 @@ export async function PATCH(request: Request, context: Params) {
     const { data: cliente, error: clienteError } = await supabaseAdmin
       .schema('omie_core')
       .from('clientes')
-      .select('id, cnpj_cpf, em_negociacao')
+      .select('id, cnpj_cpf')
       .eq('id', id)
       .single()
 
@@ -520,6 +550,7 @@ export async function PATCH(request: Request, context: Params) {
       const frequencia = String(body.frequencia || '').trim() as Frequencia
       const quantidadeParcelas = Number(body.quantidade_parcelas || 0)
       const valorTotalDivida = parseCurrency(body.valor_total_divida)
+      const valorParcela = parseOptionalCurrency(body.valor_parcela)
       const diaSemana = String(body.dia_semana || '').trim() as DiaSemana
       const observacoes = String(body.observacoes || '').trim() || null
       const dataInicio =
@@ -552,12 +583,32 @@ export async function PATCH(request: Request, context: Params) {
         )
       }
 
+      if (Number.isNaN(valorParcela)) {
+        return NextResponse.json(
+          { error: 'Informe um valor de parcela valido.' },
+          { status: 400 }
+        )
+      }
+
+      if (
+        valorParcela &&
+        roundMoney(valorParcela * quantidadeParcelas) > roundMoney(valorTotalDivida)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'O valor da parcela multiplicado pela quantidade nao pode ultrapassar o total da divida.',
+          },
+          { status: 400 }
+        )
+      }
+
       const { data: negociacaoInadimplente, error: negociacaoInadimplenteError } =
         await supabaseAdmin
           .schema('omie_core')
           .from('clientes_negociacoes')
           .select('id')
-          .eq('cnpj_cpf', cliente.cnpj_cpf)
+          .eq('cliente_id', cliente.id)
           .eq('status_negociacao', 'inadimplente')
           .order('updated_at', { ascending: false })
           .limit(1)
@@ -601,7 +652,8 @@ export async function PATCH(request: Request, context: Params) {
         quantidadeParcelas,
         frequencia,
         diaSemana,
-        dataInicio
+        dataInicio,
+        valorParcela
       ).map((parcela, index) => ({
         ...parcela,
         numero_parcela: parcelasPagas.length + index + 1,
@@ -612,7 +664,7 @@ export async function PATCH(request: Request, context: Params) {
         .from('clientes_negociacoes')
         .update({
           frequencia,
-          quantidade_parcelas: quantidadeParcelas,
+          quantidade_parcelas: parcelasPagas.length + parcelasRecalculadas.length,
           valor_total_divida: valorTotalDivida,
           data_inicio: toDateOnly(dataInicio),
           data_quitacao_prevista:
@@ -660,6 +712,8 @@ export async function PATCH(request: Request, context: Params) {
           .insert(
             parcelasRecalculadas.map((parcela) => ({
               negociacao_id: negociacaoInadimplente.id,
+              cliente_id: cliente.id,
+              cnpj_cpf: cliente.cnpj_cpf,
               ...parcela,
             }))
           )
@@ -674,25 +728,6 @@ export async function PATCH(request: Request, context: Params) {
             { status: 400 }
           )
         }
-      }
-
-      const { error: updateClienteError } = await supabaseAdmin
-        .schema('omie_core')
-        .from('clientes')
-        .update({
-          em_negociacao: true,
-        })
-        .eq('id', cliente.id)
-
-      if (updateClienteError) {
-        return NextResponse.json(
-          {
-            error:
-              updateClienteError.message ||
-              'Erro ao atualizar o status do cliente apos retomar negociacao.',
-          },
-          { status: 400 }
-        )
       }
 
       const loaded = await loadResumoAndParcelas(negociacaoInadimplente.id)
@@ -719,7 +754,7 @@ export async function PATCH(request: Request, context: Params) {
       .schema('omie_core')
       .from('clientes_negociacoes')
       .select('id, status_negociacao')
-      .eq('cnpj_cpf', cliente.cnpj_cpf)
+      .eq('cliente_id', cliente.id)
       .eq('status_negociacao', 'ativa')
       .order('created_at', { ascending: false })
       .limit(1)
@@ -787,25 +822,6 @@ export async function PATCH(request: Request, context: Params) {
           )
         }
       }
-    }
-
-    const { error: updateClienteError } = await supabaseAdmin
-      .schema('omie_core')
-      .from('clientes')
-      .update({
-        em_negociacao: false,
-      })
-      .eq('id', cliente.id)
-
-    if (updateClienteError) {
-      return NextResponse.json(
-        {
-          error:
-            updateClienteError.message ||
-            'Erro ao atualizar o status do cliente apos encerrar negociacao.',
-        },
-        { status: 400 }
-      )
     }
 
     const loaded = await loadResumoAndParcelas(negociacao.id)

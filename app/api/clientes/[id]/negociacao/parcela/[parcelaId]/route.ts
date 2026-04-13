@@ -87,7 +87,7 @@ export async function PATCH(request: Request, context: Params) {
       .schema('omie_core')
       .from('clientes_negociacoes')
       .select('id, cnpj_cpf, valor_total_divida, status_negociacao')
-      .eq('cnpj_cpf', cliente.cnpj_cpf)
+      .eq('cliente_id', cliente.id)
       .eq('status_negociacao', 'ativa')
       .order('created_at', { ascending: false })
       .limit(1)

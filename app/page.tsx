@@ -130,12 +130,6 @@ const badge = (e: Etapa) =>
   }[e])
 const etapaLabel = (e: Etapa) => ({ dia_vencimento: 'Dia do vencimento', vencido_3_mais: 'Vencido 3+', vencido_6_mais: 'Vencido 6+', fora_regua: 'Fora da régua' }[e])
 
-function parsePayload(payload: unknown) {
-  if (!payload) return null
-  if (typeof payload === 'string') try { return JSON.parse(payload) } catch { return null }
-  return typeof payload === 'object' ? payload : null
-}
-
 function parseMoney(v?: string | number | null) {
   if (!v) return 0
 
@@ -145,42 +139,6 @@ function parseMoney(v?: string | number | null) {
 
   const n = Number(v.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'))
   return Number.isFinite(n) ? n : 0
-}
-
-function normalizeDoc(v?: string | null) {
-  return (v || '').replace(/\D/g, '')
-}
-
-function parseDate(v?: string | null) {
-  if (!v) return null
-  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return new Date(`${v.slice(0, 10)}T00:00:00`)
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) {
-    const [d, m, y] = v.split('/')
-    return new Date(`${y}-${m}-${d}T00:00:00`)
-  }
-  const d = new Date(v)
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
-function daysLate(v?: string | null) {
-  const d = parseDate(v)
-  if (!d) return 0
-  const h = new Date(); h.setHours(0, 0, 0, 0); d.setHours(0, 0, 0, 0)
-  return Math.floor((h.getTime() - d.getTime()) / 86400000)
-}
-
-function titulos(payload: unknown): TituloVencido[] {
-  const data = parsePayload(payload) as { titulos?: Array<Record<string, unknown>> } | null
-  if (!data?.titulos) return []
-  return data.titulos.map((t, i) => ({
-    id: `${String(t.doc || 'sem-doc')}-${i}`,
-    doc: String(t.doc || ''),
-    status: String(t.status || ''),
-    parcela: String(t.parcela || ''),
-    emissao: String(t.emissao || ''),
-    vencimento: String(t.vencimento || ''),
-    valor_fatura: String(t.valor_fatura || ''),
-  }))
 }
 
 export default function Home() {
@@ -206,6 +164,7 @@ export default function Home() {
   const [salvandoNegociacao, setSalvandoNegociacao] = useState(false)
   const [modoNegociacao, setModoNegociacao] = useState<ModoNegociacao>('criar')
   const [negociacaoValorTotal, setNegociacaoValorTotal] = useState('')
+  const [negociacaoValorParcela, setNegociacaoValorParcela] = useState('')
   const [negociacaoQuantidadeParcelas, setNegociacaoQuantidadeParcelas] = useState('4')
   const [negociacaoFrequencia, setNegociacaoFrequencia] =
     useState<FrequenciaNegociacao>('semanal')
@@ -235,164 +194,26 @@ export default function Home() {
       setMensagem(null)
     }
     setErro(null)
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
-    if (authErr || !user) return setErro('Sessão inválida.')
-
-    const { data: perfilData, error: perfilErr } = await supabase.schema('omie_core').from('usuarios_dashboard').select('id, email, nome, perfil, nome_vendedor, ativo').eq('id', user.id).single()
-    if (perfilErr || !perfilData || perfilData.ativo !== true) return setErro('Usuário sem acesso.')
-    setPerfil(perfilData)
-
-    const { data: baseRegua, error: baseErr } = await supabase
-      .schema('omie_core')
-      .from('regua_dia_vencimento')
-      .select('cnpj_cpf, data_vencimento, valor_documento')
-      .not('cnpj_cpf', 'is', null)
-    if (baseErr) return setErro(baseErr.message)
-
-    const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
-    const comTitulo = new Set(
-      (baseRegua || []).map((i) => normalizeDoc(i.cnpj_cpf)).filter(Boolean)
-    )
-    const hojeSet = new Set(
-      (baseRegua || [])
-        .filter((i) => {
-          const d = parseDate(i.data_vencimento)
-          if (!d) return false
-          d.setHours(0, 0, 0, 0)
-          return d.getTime() === hoje.getTime()
-        })
-        .map((i) => normalizeDoc(i.cnpj_cpf))
-        .filter(Boolean)
-    )
-    const mapaAVencer = new Map<string, number>()
-    for (const item of baseRegua || []) {
-      const cnpj = normalizeDoc(item.cnpj_cpf)
-      if (!cnpj) continue
-      mapaAVencer.set(cnpj, (mapaAVencer.get(cnpj) || 0) + parseMoney(item.valor_documento))
-    }
-
-    const { data: meta, error: metaErr } = await supabase.schema('omie_core').from(VENCIDOS).select('id, cnpj_cpf, payload_json').order('id', { ascending: false })
-    if (metaErr) return setErro(metaErr.message)
-
-    const { data: negociacoesResumo, error: negociacoesError } = await supabase
-      .schema('omie_core')
-      .from('vw_clientes_negociacoes_resumo')
-      .select(
-        'cnpj_cpf, status_negociacao, valor_total_divida, quantidade_parcelas, frequencia, observacoes, created_at'
-      )
-      .order('created_at', { ascending: false })
-    if (negociacoesError) return setErro(negociacoesError.message)
-
-    const mapaNegociacao = new Map<
-      string,
-      {
-        status: string | null
-        valor: number
-        quantidade: number
-        frequencia: string | null
-        observacoes: string | null
-      }
-    >()
-
-    for (const item of negociacoesResumo || []) {
-      const cnpj = normalizeDoc(item.cnpj_cpf)
-      if (!cnpj || mapaNegociacao.has(cnpj)) continue
-
-      mapaNegociacao.set(cnpj, {
-        status: item.status_negociacao || null,
-        valor: Number(item.valor_total_divida || 0),
-        quantidade: Number(item.quantidade_parcelas || 0),
-        frequencia: item.frequencia || null,
-        observacoes: item.observacoes || null,
-      })
-    }
-
-    const mapa = new Map<string, { qtd: number; total: number; atraso: number }>()
-    let totalVencidoFonte = 0
-    let inadimplentesFonte = 0
-    for (const item of meta || []) {
-      const cnpj = normalizeDoc(item.cnpj_cpf)
-      if (!cnpj || mapa.has(cnpj)) continue
-      const lista = titulos(item.payload_json)
-      const total = lista.reduce((s, t) => s + parseMoney(t.valor_fatura), 0)
-      mapa.set(cnpj, { qtd: lista.length, total, atraso: lista.reduce((m, t) => Math.max(m, daysLate(t.vencimento)), 0) })
-      if (lista.length > 0) {
-        inadimplentesFonte += 1
-        totalVencidoFonte += total
-      }
-    }
-
-    let query = supabase.schema('omie_core').from('clientes').select('id, razao_social, nome_fantasia, cnpj_cpf, whatsapp, contato, nome_vendedor_padrao_snapshot, cliente_desbloqueado_regua, em_negociacao')
-    if (perfilData.perfil !== 'master') query = query.eq('nome_vendedor_padrao_snapshot', perfilData.nome_vendedor || '')
-    const { data: rows, error: cliErr } = await query.order('razao_social', { ascending: true })
-    if (cliErr) return setErro(cliErr.message)
-
-    const data = (rows || []).map((c) => {
-      const cnpjNormalizado = normalizeDoc(c.cnpj_cpf)
-      const resumo = mapa.get(cnpjNormalizado)
-      const negociacaoInfo = mapaNegociacao.get(cnpjNormalizado)
-      const emNegociacaoAtiva = negociacaoInfo?.status === 'ativa'
-      const temHistoricoNegociacao = Boolean(
-        negociacaoInfo &&
-          (negociacaoInfo.valor > 0 ||
-            negociacaoInfo.quantidade > 0 ||
-            negociacaoInfo.status === 'inadimplente' ||
-            negociacaoInfo.status === 'ativa')
-      )
-      const atraso = resumo?.atraso || 0
-      const etapa: Etapa =
-        atraso >= 6
-          ? 'vencido_6_mais'
-          : atraso >= 3
-            ? 'vencido_3_mais'
-            : cnpjNormalizado && (hojeSet.has(cnpjNormalizado) || comTitulo.has(cnpjNormalizado))
-              ? 'dia_vencimento'
-              : 'fora_regua'
-      return {
-        ...c,
-        em_negociacao: emNegociacaoAtiva,
-        ultima_negociacao_status: temHistoricoNegociacao
-          ? negociacaoInfo?.status || null
-          : null,
-        ultima_negociacao_valor_divida: temHistoricoNegociacao
-          ? negociacaoInfo?.valor || 0
-          : 0,
-        ultima_negociacao_quantidade_parcelas: temHistoricoNegociacao
-          ? negociacaoInfo?.quantidade || 0
-          : 0,
-        ultima_negociacao_frequencia: temHistoricoNegociacao
-          ? negociacaoInfo?.frequencia || null
-          : null,
-        ultima_negociacao_observacoes: temHistoricoNegociacao
-          ? negociacaoInfo?.observacoes || null
-          : null,
-        tem_titulo: !!cnpjNormalizado && comTitulo.has(cnpjNormalizado),
-        qtd_titulos_vencidos: resumo?.qtd || 0,
-        valor_total_titulos_vencidos: resumo?.total || 0,
-        valor_total_a_vencer: mapaAVencer.get(cnpjNormalizado) || 0,
-        max_dias_atraso: atraso,
-        etapa_regua: etapa,
-      }
+    const response = await fetch('/api/clientes/carteira', {
+      method: 'GET',
+      cache: 'no-store',
     })
+    const resultado = await response.json()
 
-    setClientes(data)
+    if (!response.ok) {
+      setErro(resultado.error || 'Erro ao carregar carteira.')
+      return
+    }
+
+    setPerfil(resultado.perfil || null)
+    setClientes(resultado.clientes || [])
     setResumoVencidosFonte(
-      perfilData.perfil === 'master'
-        ? {
-            total: totalVencidoFonte,
-            inadimplentes: inadimplentesFonte,
-          }
-        : {
-            total: data.reduce((s, c) => s + (c.valor_total_titulos_vencidos || 0), 0),
-            inadimplentes: data.filter((c) => (c.qtd_titulos_vencidos || 0) > 0).length,
-          }
+      resultado.resumoVencidosFonte || {
+        total: 0,
+        inadimplentes: 0,
+      }
     )
-    const atualizadoEm = new Intl.DateTimeFormat('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    }).format(new Date())
-    setStatus(`Carteira carregada: ${data.length} clientes · Atualizado às ${atualizadoEm}`)
+    setStatus(resultado.status || 'Carteira carregada.')
   }
 
   async function toggleRegua(cliente: Cliente) {
@@ -419,9 +240,20 @@ export default function Home() {
   }
 
   async function openVencidos(cliente: Cliente) {
-    setClienteModal(cliente); setModal('vencidos'); setVencidos([])
-    const { data } = await supabase.schema('omie_core').from(VENCIDOS).select('payload_json').eq('cnpj_cpf', cliente.cnpj_cpf || '').order('id', { ascending: false }).limit(1)
-    setVencidos(titulos(data?.[0]?.payload_json))
+    setClienteModal(cliente)
+    setModal('vencidos')
+    setVencidos([])
+    setErro(null)
+
+    const response = await fetch(`/api/clientes/${cliente.id}/vencidos`)
+    const resultado = await response.json()
+
+    if (!response.ok) {
+      setErro(resultado.error || 'Erro ao carregar títulos vencidos.')
+      return
+    }
+
+    setVencidos(resultado.vencidos || [])
   }
 
   function openNegociacao(cliente: Cliente) {
@@ -441,6 +273,7 @@ export default function Home() {
     setNegociacaoValorTotal(
       valorBase ? String(valorBase.toFixed(2)).replace('.', ',') : ''
     )
+    setNegociacaoValorParcela('')
     setNegociacaoQuantidadeParcelas(
       cliente.ultima_negociacao_status === 'inadimplente' &&
         (cliente.ultima_negociacao_quantidade_parcelas || 0) > 0
@@ -632,6 +465,7 @@ export default function Home() {
       body: JSON.stringify({
         ...(retomando ? { acao: 'retomar' } : {}),
         valor_total_divida: negociacaoValorTotal,
+        valor_parcela: negociacaoValorParcela,
         quantidade_parcelas: Number(negociacaoQuantidadeParcelas),
         frequencia: negociacaoFrequencia,
         dia_semana: negociacaoDiaSemana,
@@ -659,7 +493,11 @@ export default function Home() {
               em_negociacao: true,
               ultima_negociacao_status: 'ativa',
               ultima_negociacao_valor_divida: parseMoney(negociacaoValorTotal),
-              ultima_negociacao_quantidade_parcelas: Number(negociacaoQuantidadeParcelas),
+              ultima_negociacao_quantidade_parcelas: Number(
+                retomando
+                  ? resultado.resumo?.quantidade_parcelas || negociacaoQuantidadeParcelas
+                  : resultado.negociacao?.quantidade_parcelas || negociacaoQuantidadeParcelas
+              ),
               ultima_negociacao_frequencia: negociacaoFrequencia,
               ultima_negociacao_observacoes: negociacaoObservacoes || null,
             }
@@ -973,7 +811,7 @@ export default function Home() {
         </div>
       </div>
 
-      {modal && <div onClick={() => setModal(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(40,24,32,0.42)] px-4 py-6 backdrop-blur-md"><div onClick={(event) => event.stopPropagation()} className="max-h-[88vh] w-full max-w-5xl overflow-auto rounded-[28px] border border-white/10 bg-[rgba(40,47,69,0.34)] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.18)]"><div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5"><div><div className="text-xs uppercase tracking-[0.28em] text-slate-400">{modal === 'tratados' ? 'Títulos A Vencer' : modal === 'vencidos' ? 'Títulos Vencidos' : modal === 'negociacao' ? modoNegociacao === 'retomar' ? 'Retomar negociação' : 'Nova negociação' : negociacaoResumo?.status_negociacao === 'inadimplente' ? 'Negociação inadimplente' : 'Negociação ativa'}</div><h2 className="mt-2 text-2xl font-semibold text-white">{clienteModal?.razao_social || '-'}</h2><div className="mt-2 text-sm text-slate-400">{clienteModal?.cnpj_cpf || '-'}</div></div><button onClick={() => setModal(null)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm">Fechar</button></div>{modal === 'tratados' && <div className="mt-5 grid gap-3">{tratados.map((t) => <div key={t.id} className="rounded-[24px] border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.14)] p-5"><div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-4"><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Pedido</div><div className="mt-1 text-white">{t.numero_pedido || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Parcela</div><div className="mt-1 text-white">{t.numero_parcela || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Valor</div><div className="mt-1 text-white">{typeof t.valor_documento === 'number' ? money(t.valor_documento) : t.valor_documento || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Vencimento</div><div className="mt-1 text-white">{t.data_vencimento || '-'}</div></div></div></div>)}</div>}{modal === 'vencidos' && <div className="mt-5 grid gap-3">{vencidos.map((t) => <div key={t.id} className="rounded-[24px] border border-[rgba(164,37,39,0.24)] bg-[rgba(164,37,39,0.14)] p-5"><div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-6"><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Documento</div><div className="mt-1 text-white">{t.doc || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Status</div><div className="mt-1 text-white">{t.status || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Parcela</div><div className="mt-1">{t.parcela || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Valor</div><div className="mt-1">{t.valor_fatura ? money(parseMoney(t.valor_fatura)) : '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Emissão</div><div className="mt-1">{t.emissao || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Vencimento</div><div className="mt-1">{t.vencimento || '-'}</div></div></div></div>)}</div>}{modal === 'negociacao' && <div className="mt-5 grid gap-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"><label className="grid gap-2 text-sm text-slate-300"><span>Total da dívida</span><input value={negociacaoValorTotal} onChange={(event) => setNegociacaoValorTotal(event.target.value)} placeholder="Ex: 3500,00" className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500" /></label><label className="grid gap-2 text-sm text-slate-300"><span>Quantidade de parcelas</span><input type="number" min={1} value={negociacaoQuantidadeParcelas} onChange={(event) => setNegociacaoQuantidadeParcelas(event.target.value)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500" /></label><label className="grid gap-2 text-sm text-slate-300"><span>Frequência</span><select value={negociacaoFrequencia} onChange={(event) => setNegociacaoFrequencia(event.target.value as FrequenciaNegociacao)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm"><option value="semanal">Semanal</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option></select></label><label className="grid gap-2 text-sm text-slate-300"><span>Dia da semana</span><select value={negociacaoDiaSemana} onChange={(event) => setNegociacaoDiaSemana(event.target.value as DiaSemanaNegociacao)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm"><option value="segunda">Segunda-feira</option><option value="terca">Terça-feira</option><option value="quarta">Quarta-feira</option><option value="quinta">Quinta-feira</option><option value="sexta">Sexta-feira</option><option value="sabado">Sábado</option><option value="domingo">Domingo</option></select></label><label className="grid gap-2 text-sm text-slate-300"><span>Data inicial</span><input type="date" value={negociacaoDataInicio} onChange={(event) => setNegociacaoDataInicio(event.target.value)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none" /></label></div><label className="grid gap-2 text-sm text-slate-300"><span>Observações</span><textarea value={negociacaoObservacoes} onChange={(event) => setNegociacaoObservacoes(event.target.value)} rows={4} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500" placeholder="Observações da negociação" /></label><div className="rounded-[24px] border border-[rgba(254,132,146,0.2)] bg-[rgba(254,132,146,0.08)] p-4 text-sm text-slate-200">{modoNegociacao === 'retomar' ? 'Você está retomando uma negociação inadimplente. O sistema vai atualizar a negociação existente, preservar parcelas pagas e recriar apenas as parcelas pendentes conforme o novo acordo.' : 'Este primeiro bloco cria a negociação ativa, gera as parcelas iniciais e marca o cliente como em negociação.'}</div><div className="flex flex-wrap justify-end gap-3"><button onClick={() => setModal(null)} className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm">Cancelar</button><button onClick={() => void criarNegociacao()} disabled={salvandoNegociacao} className={`rounded-2xl px-4 py-3 text-sm font-medium text-white ${salvandoNegociacao ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-[rgba(254,132,146,0.92)]'}`}>{salvandoNegociacao ? modoNegociacao === 'retomar' ? 'Retomando...' : 'Criando...' : modoNegociacao === 'retomar' ? 'Retomar negociação' : 'Criar negociação'}</button></div></div>}{modal === 'negociacao_detalhe' && <div className="mt-5 grid gap-5">{carregandoNegociacao && <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-6 text-sm text-slate-300">Carregando negociação...</div>}{!carregandoNegociacao && negociacaoResumo && <><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5"><div className="rounded-2xl border border-[rgba(254,132,146,0.2)] bg-[rgba(254,132,146,0.1)] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffe1e4]/80">Total da dívida</div><div className="mt-2 text-2xl font-semibold text-white">{money(Number(negociacaoResumo.valor_total_divida || 0))}</div></div><div className="rounded-2xl border border-[rgba(81,150,206,0.2)] bg-[rgba(81,150,206,0.1)] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Total pago</div><div className="mt-2 text-2xl font-semibold text-white">{money(Number(negociacaoResumo.valor_total_pago || 0))}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Parcelas pagas</div><div className="mt-2 text-2xl font-semibold text-white">{negociacaoResumo.parcelas_pagas || 0}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Parcelas pendentes</div><div className="mt-2 text-2xl font-semibold text-white">{negociacaoResumo.parcelas_pendentes || 0}</div></div><div className="rounded-2xl border border-[rgba(164,37,39,0.24)] bg-[rgba(164,37,39,0.1)] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Parcelas vencidas</div><div className="mt-2 text-2xl font-semibold text-white">{negociacaoResumo.parcelas_vencidas || 0}</div></div></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Frequência</div><div className="mt-2 text-lg font-medium text-white">{negociacaoResumo.frequencia}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Quantidade de parcelas</div><div className="mt-2 text-lg font-medium text-white">{negociacaoResumo.quantidade_parcelas}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Próximo vencimento</div><div className="mt-2 text-lg font-medium text-white">{negociacaoResumo.proximo_vencimento || '-'}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Status</div><div className="mt-2 text-lg font-medium text-white">{negociacaoResumo.status_negociacao}</div></div></div><div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-5"><div className="mb-4 flex flex-wrap items-start justify-between gap-4"><div className="text-sm text-slate-300">{negociacaoResumo.observacoes || 'Sem observações registradas.'}</div>{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'ativa' && <div className="flex flex-wrap gap-2"><button onClick={() => void finalizarNegociacao('quitada')} disabled={finalizandoNegociacao !== null} className={`rounded-xl px-3 py-2 text-sm font-medium text-white ${finalizandoNegociacao === 'quitada' ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-emerald-600'}`}>{finalizandoNegociacao === 'quitada' ? 'Salvando...' : 'Quitar negociação'}</button><button onClick={() => void finalizarNegociacao('cancelada')} disabled={finalizandoNegociacao !== null} className={`rounded-xl px-3 py-2 text-sm font-medium text-white ${finalizandoNegociacao === 'cancelada' ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-amber-600'}`}>{finalizandoNegociacao === 'cancelada' ? 'Salvando...' : 'Cancelar negociação'}</button><button onClick={() => void finalizarNegociacao('inadimplente')} disabled={finalizandoNegociacao !== null} className={`rounded-xl px-3 py-2 text-sm font-medium text-white ${finalizandoNegociacao === 'inadimplente' ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-[rgba(164,37,39,0.92)]'}`}>{finalizandoNegociacao === 'inadimplente' ? 'Salvando...' : 'Marcar inadimplente'}</button></div>}</div>{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'inadimplente' && <button onClick={refazerNegociacaoAtual} className="mb-4 w-full rounded-2xl border border-[rgba(254,132,146,0.32)] bg-[rgba(254,132,146,0.2)] px-5 py-4 text-base font-medium text-[#ffe1e4]">Refazer negociação</button>}<div className="grid gap-3">{negociacaoParcelas.map((parcela) => <div key={parcela.id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"><div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-8"><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Parcela</div><div className="mt-1 text-white">{parcela.numero_parcela}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Vencimento</div><div className="mt-1 text-white">{parcela.vencimento}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Valor</div><div className="mt-1 text-white">{money(Number(parcela.valor_parcela || 0))}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Status</div><div className="mt-1 text-white">{parcela.status_parcela}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Valor pago</div>{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'ativa' ? <input value={valorPagoParcelas[parcela.id] || ''} onChange={(event) => setValorPagoParcelas((state) => ({ ...state, [parcela.id]: event.target.value }))} placeholder="0,00" className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500" /> : <div className="mt-1 text-white">{parcela.valor_pago ? money(Number(parcela.valor_pago)) : '-'}</div>}</div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Pago em</div>{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'ativa' ? <input type="date" value={pagoEmParcelas[parcela.id] || ''} onChange={(event) => setPagoEmParcelas((state) => ({ ...state, [parcela.id]: event.target.value }))} className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white outline-none" /> : <div className="mt-1 text-white">{parcela.pago_em || '-'}</div>}</div><div className="xl:col-span-2 flex items-end">{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'ativa' ? <button onClick={() => void salvarParcelaNegociacao(parcela)} disabled={salvandoParcelaId === parcela.id} className={`w-full rounded-xl px-4 py-2 text-sm font-medium text-white ${salvandoParcelaId === parcela.id ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-[rgba(81,150,206,0.92)]'}`}>{salvandoParcelaId === parcela.id ? 'Salvando...' : 'Aplicar pagamento'}</button> : <div className="text-sm text-slate-400">Resumo final</div>}</div></div></div>)}</div></div></>}</div>}</div></div>}
+      {modal && <div onClick={() => setModal(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(40,24,32,0.42)] px-4 py-6 backdrop-blur-md"><div onClick={(event) => event.stopPropagation()} className="max-h-[88vh] w-full max-w-5xl overflow-auto rounded-[28px] border border-white/10 bg-[rgba(40,47,69,0.34)] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.18)]"><div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5"><div><div className="text-xs uppercase tracking-[0.28em] text-slate-400">{modal === 'tratados' ? 'Títulos A Vencer' : modal === 'vencidos' ? 'Títulos Vencidos' : modal === 'negociacao' ? modoNegociacao === 'retomar' ? 'Retomar negociação' : 'Nova negociação' : negociacaoResumo?.status_negociacao === 'inadimplente' ? 'Negociação inadimplente' : 'Negociação ativa'}</div><h2 className="mt-2 text-2xl font-semibold text-white">{clienteModal?.razao_social || '-'}</h2><div className="mt-2 text-sm text-slate-400">{clienteModal?.cnpj_cpf || '-'}</div></div><button onClick={() => setModal(null)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm">Fechar</button></div>{modal === 'tratados' && <div className="mt-5 grid gap-3">{tratados.map((t) => <div key={t.id} className="rounded-[24px] border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.14)] p-5"><div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-4"><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Pedido</div><div className="mt-1 text-white">{t.numero_pedido || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Parcela</div><div className="mt-1 text-white">{t.numero_parcela || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Valor</div><div className="mt-1 text-white">{typeof t.valor_documento === 'number' ? money(t.valor_documento) : t.valor_documento || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Vencimento</div><div className="mt-1 text-white">{t.data_vencimento || '-'}</div></div></div></div>)}</div>}{modal === 'vencidos' && <div className="mt-5 grid gap-3">{vencidos.map((t) => <div key={t.id} className="rounded-[24px] border border-[rgba(164,37,39,0.24)] bg-[rgba(164,37,39,0.14)] p-5"><div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-6"><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Documento</div><div className="mt-1 text-white">{t.doc || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Status</div><div className="mt-1 text-white">{t.status || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Parcela</div><div className="mt-1">{t.parcela || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Valor</div><div className="mt-1">{t.valor_fatura ? money(parseMoney(t.valor_fatura)) : '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Emissão</div><div className="mt-1">{t.emissao || '-'}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Vencimento</div><div className="mt-1">{t.vencimento || '-'}</div></div></div></div>)}</div>}{modal === 'negociacao' && <div className="mt-5 grid gap-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"><label className="grid gap-2 text-sm text-slate-300"><span>Total da dívida</span><input value={negociacaoValorTotal} onChange={(event) => setNegociacaoValorTotal(event.target.value)} placeholder="Ex: 3500,00" className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500" /></label><label className="grid gap-2 text-sm text-slate-300"><span>Quantidade de parcelas</span><input type="number" min={1} value={negociacaoQuantidadeParcelas} onChange={(event) => setNegociacaoQuantidadeParcelas(event.target.value)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500" /></label><label className="grid gap-2 text-sm text-slate-300"><span>Frequência</span><select value={negociacaoFrequencia} onChange={(event) => setNegociacaoFrequencia(event.target.value as FrequenciaNegociacao)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm"><option value="semanal">Semanal</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option></select></label><label className="grid gap-2 text-sm text-slate-300"><span>Dia da semana</span><select value={negociacaoDiaSemana} onChange={(event) => setNegociacaoDiaSemana(event.target.value as DiaSemanaNegociacao)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm"><option value="segunda">Segunda-feira</option><option value="terca">Terça-feira</option><option value="quarta">Quarta-feira</option><option value="quinta">Quinta-feira</option><option value="sexta">Sexta-feira</option><option value="sabado">Sábado</option><option value="domingo">Domingo</option></select></label><label className="grid gap-2 text-sm text-slate-300"><span>Data inicial</span><input type="date" value={negociacaoDataInicio} onChange={(event) => setNegociacaoDataInicio(event.target.value)} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none" /></label><label className="grid gap-2 text-sm text-slate-300"><span>Valor da parcela</span><input value={negociacaoValorParcela} onChange={(event) => setNegociacaoValorParcela(event.target.value)} placeholder="Opcional. Ex: 500,00" className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500" /></label></div><label className="grid gap-2 text-sm text-slate-300"><span>Observações</span><textarea value={negociacaoObservacoes} onChange={(event) => setNegociacaoObservacoes(event.target.value)} rows={4} className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500" placeholder="Observações da negociação" /></label><div className="rounded-[24px] border border-[rgba(254,132,146,0.2)] bg-[rgba(254,132,146,0.08)] p-4 text-sm text-slate-200">{modoNegociacao === 'retomar' ? 'Você está retomando uma negociação inadimplente. O sistema vai atualizar a negociação existente, preservar parcelas pagas e recriar apenas as parcelas pendentes conforme o novo acordo.' : 'Este primeiro bloco cria a negociação ativa, gera as parcelas iniciais e marca o cliente como em negociação.'} {negociacaoValorParcela.trim() ? 'Quando o valor da parcela for informado, o sistema gera a quantidade desejada nesse valor e cria uma parcela final extra apenas com a diferença restante, se houver.' : ''}</div><div className="flex flex-wrap justify-end gap-3"><button onClick={() => setModal(null)} className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm">Cancelar</button><button onClick={() => void criarNegociacao()} disabled={salvandoNegociacao} className={`rounded-2xl px-4 py-3 text-sm font-medium text-white ${salvandoNegociacao ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-[rgba(254,132,146,0.92)]'}`}>{salvandoNegociacao ? modoNegociacao === 'retomar' ? 'Retomando...' : 'Criando...' : modoNegociacao === 'retomar' ? 'Retomar negociação' : 'Criar negociação'}</button></div></div>}{modal === 'negociacao_detalhe' && <div className="mt-5 grid gap-5">{carregandoNegociacao && <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-6 text-sm text-slate-300">Carregando negociação...</div>}{!carregandoNegociacao && negociacaoResumo && <><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5"><div className="rounded-2xl border border-[rgba(254,132,146,0.2)] bg-[rgba(254,132,146,0.1)] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffe1e4]/80">Total da dívida</div><div className="mt-2 text-2xl font-semibold text-white">{money(Number(negociacaoResumo.valor_total_divida || 0))}</div></div><div className="rounded-2xl border border-[rgba(81,150,206,0.2)] bg-[rgba(81,150,206,0.1)] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-[#d8efff]/80">Total pago</div><div className="mt-2 text-2xl font-semibold text-white">{money(Number(negociacaoResumo.valor_total_pago || 0))}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Parcelas pagas</div><div className="mt-2 text-2xl font-semibold text-white">{negociacaoResumo.parcelas_pagas || 0}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Parcelas pendentes</div><div className="mt-2 text-2xl font-semibold text-white">{negociacaoResumo.parcelas_pendentes || 0}</div></div><div className="rounded-2xl border border-[rgba(164,37,39,0.24)] bg-[rgba(164,37,39,0.1)] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-[#ffd4da]/80">Parcelas vencidas</div><div className="mt-2 text-2xl font-semibold text-white">{negociacaoResumo.parcelas_vencidas || 0}</div></div></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Frequência</div><div className="mt-2 text-lg font-medium text-white">{negociacaoResumo.frequencia}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Quantidade de parcelas</div><div className="mt-2 text-lg font-medium text-white">{negociacaoResumo.quantidade_parcelas}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Próximo vencimento</div><div className="mt-2 text-lg font-medium text-white">{negociacaoResumo.proximo_vencimento || '-'}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4"><div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">Status</div><div className="mt-2 text-lg font-medium text-white">{negociacaoResumo.status_negociacao}</div></div></div><div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-5"><div className="mb-4 flex flex-wrap items-start justify-between gap-4"><div className="text-sm text-slate-300">{negociacaoResumo.observacoes || 'Sem observações registradas.'}</div>{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'ativa' && <div className="flex flex-wrap gap-2"><button onClick={() => void finalizarNegociacao('quitada')} disabled={finalizandoNegociacao !== null} className={`rounded-xl px-3 py-2 text-sm font-medium text-white ${finalizandoNegociacao === 'quitada' ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-emerald-600'}`}>{finalizandoNegociacao === 'quitada' ? 'Salvando...' : 'Quitar negociação'}</button><button onClick={() => void finalizarNegociacao('cancelada')} disabled={finalizandoNegociacao !== null} className={`rounded-xl px-3 py-2 text-sm font-medium text-white ${finalizandoNegociacao === 'cancelada' ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-amber-600'}`}>{finalizandoNegociacao === 'cancelada' ? 'Salvando...' : 'Cancelar negociação'}</button><button onClick={() => void finalizarNegociacao('inadimplente')} disabled={finalizandoNegociacao !== null} className={`rounded-xl px-3 py-2 text-sm font-medium text-white ${finalizandoNegociacao === 'inadimplente' ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-[rgba(164,37,39,0.92)]'}`}>{finalizandoNegociacao === 'inadimplente' ? 'Salvando...' : 'Marcar inadimplente'}</button></div>}</div>{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'inadimplente' && <button onClick={refazerNegociacaoAtual} className="mb-4 w-full rounded-2xl border border-[rgba(254,132,146,0.32)] bg-[rgba(254,132,146,0.2)] px-5 py-4 text-base font-medium text-[#ffe1e4]">Refazer negociação</button>}<div className="grid gap-3">{negociacaoParcelas.map((parcela) => <div key={parcela.id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"><div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-8"><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Parcela</div><div className="mt-1 text-white">{parcela.numero_parcela}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Vencimento</div><div className="mt-1 text-white">{parcela.vencimento}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Valor</div><div className="mt-1 text-white">{money(Number(parcela.valor_parcela || 0))}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Status</div><div className="mt-1 text-white">{parcela.status_parcela}</div></div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Valor pago</div>{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'ativa' ? <input value={valorPagoParcelas[parcela.id] || ''} onChange={(event) => setValorPagoParcelas((state) => ({ ...state, [parcela.id]: event.target.value }))} placeholder="0,00" className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500" /> : <div className="mt-1 text-white">{parcela.valor_pago ? money(Number(parcela.valor_pago)) : '-'}</div>}</div><div><div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Pago em</div>{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'ativa' ? <input type="date" value={pagoEmParcelas[parcela.id] || ''} onChange={(event) => setPagoEmParcelas((state) => ({ ...state, [parcela.id]: event.target.value }))} className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white outline-none" /> : <div className="mt-1 text-white">{parcela.pago_em || '-'}</div>}</div><div className="xl:col-span-2 flex items-end">{perfil?.perfil === 'master' && negociacaoResumo.status_negociacao === 'ativa' ? <button onClick={() => void salvarParcelaNegociacao(parcela)} disabled={salvandoParcelaId === parcela.id} className={`w-full rounded-xl px-4 py-2 text-sm font-medium text-white ${salvandoParcelaId === parcela.id ? 'cursor-not-allowed bg-white/10 text-slate-400' : 'bg-[rgba(81,150,206,0.92)]'}`}>{salvandoParcelaId === parcela.id ? 'Salvando...' : 'Aplicar pagamento'}</button> : <div className="text-sm text-slate-400">Resumo final</div>}</div></div></div>)}</div></div></>}</div>}</div></div>}
     </main>
   )
 }
