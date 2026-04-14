@@ -1,11 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import {
-  FLUXOS_MENSAGEM,
-  FluxoMensagemKey,
-  TemplateMensagem,
-  getTemplatesMensagemDefault,
-} from '@/lib/mensagem/config'
-import { renderMensagemTemplate, resolveTelefoneMensagem } from '@/lib/mensagem/template'
+import { FluxoMensagemKey } from '@/lib/mensagem/config'
+import { resolveTelefoneMensagem } from '@/lib/mensagem/template'
 
 const SCHEMA = 'omie_core'
 
@@ -17,12 +12,18 @@ type ConfiguracaoMensagemRow = {
   ativo: boolean | null
 }
 
-type TemplateMensagemRow = {
-  usuario_id: string
-  fluxo: FluxoMensagemKey
-  nome_template: string | null
-  conteudo: string | null
-  ativo: boolean | null
+export type RelatorioMensagemDia = {
+  id: string
+  fluxo: string
+  status_envio: string
+  nome_vendedor: string | null
+  cliente_nome: string | null
+  contato: string | null
+  telefone: string | null
+  http_status: number | null
+  erro: string | null
+  mensagem: string
+  created_at: string
 }
 
 type ClienteMensagemRow = {
@@ -40,7 +41,39 @@ function normalizeDoc(value?: string | null) {
 }
 
 function parseObject(value: unknown) {
+  if (Array.isArray(value)) {
+    const [first] = value
+    return typeof first === 'object' && first !== null
+      ? (first as Record<string, unknown>)
+      : {}
+  }
+
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+}
+
+function parseItems(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter(
+      (item): item is Record<string, unknown> => typeof item === 'object' && item !== null
+    )
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    return [value as Record<string, unknown>]
+  }
+
+  return []
+}
+
+function resolveMensagemPronta(payload: Record<string, unknown>) {
+  const content =
+    typeof payload.content === 'object' && payload.content !== null
+      ? (payload.content as Record<string, unknown>)
+      : {}
+
+  return String(payload.mensagem || payload.text || content.text || payload.texto || '')
+    .replace(/\r\n/g, '\n')
+    .trim()
 }
 
 function normalizeUazapiServerUrl(value?: string | null) {
@@ -74,30 +107,6 @@ export async function loadMensagemConfiguracao(usuarioId: string) {
     throw configError
   }
 
-  const { data: templatesData, error: templatesError } = await supabaseAdmin
-    .schema(SCHEMA)
-    .from('mensagem_templates')
-    .select('usuario_id, fluxo, nome_template, conteudo, ativo')
-    .eq('usuario_id', usuarioId)
-    .returns<TemplateMensagemRow[]>()
-
-  if (templatesError) {
-    throw templatesError
-  }
-
-  const defaults = getTemplatesMensagemDefault()
-  const templates: TemplateMensagem[] = defaults.map((defaultTemplate) => {
-    const saved = (templatesData || []).find((item) => item.fluxo === defaultTemplate.fluxo)
-
-    return {
-      fluxo: defaultTemplate.fluxo,
-      nome_template: saved?.nome_template?.trim() || defaultTemplate.nome_template,
-      conteudo: saved?.conteudo?.trim() || defaultTemplate.conteudo,
-      variaveis:
-        FLUXOS_MENSAGEM.find((fluxo) => fluxo.key === defaultTemplate.fluxo)?.variaveis || [],
-    }
-  })
-
   return {
     configuracao: {
       uazapi_server_url: configuracao?.uazapi_instance || '',
@@ -105,7 +114,6 @@ export async function loadMensagemConfiguracao(usuarioId: string) {
       ativo: configuracao?.ativo !== false,
       nome_vendedor: configuracao?.nome_vendedor || null,
     },
-    templates,
   }
 }
 
@@ -115,7 +123,6 @@ export async function saveMensagemConfiguracao(input: {
   uazapiServerUrl: string
   uazapiToken: string
   ativo: boolean
-  templates: TemplateMensagem[]
 }) {
   const { error: configError } = await supabaseAdmin
     .schema(SCHEMA)
@@ -133,23 +140,6 @@ export async function saveMensagemConfiguracao(input: {
 
   if (configError) {
     throw configError
-  }
-
-  const rows = input.templates.map((template) => ({
-    usuario_id: input.usuarioId,
-    fluxo: template.fluxo,
-    nome_template: template.nome_template.trim(),
-    conteudo: template.conteudo.trim(),
-    ativo: true,
-  }))
-
-  const { error: templateError } = await supabaseAdmin
-    .schema(SCHEMA)
-    .from('mensagem_templates')
-    .upsert(rows, { onConflict: 'usuario_id,fluxo' })
-
-  if (templateError) {
-    throw templateError
   }
 }
 
@@ -258,18 +248,6 @@ async function resolveConfiguracaoDestino(payload: Record<string, unknown>) {
   }
 }
 
-async function loadTemplateByUsuario(usuarioId: string, fluxo: FluxoMensagemKey) {
-  const { data } = await supabaseAdmin
-    .schema(SCHEMA)
-    .from('mensagem_templates')
-    .select('usuario_id, fluxo, nome_template, conteudo, ativo')
-    .eq('usuario_id', usuarioId)
-    .eq('fluxo', fluxo)
-    .maybeSingle<TemplateMensagemRow>()
-
-  return data || null
-}
-
 async function registrarLogMensagem(input: {
   fluxo: FluxoMensagemKey
   usuarioId?: string | null
@@ -300,9 +278,79 @@ async function registrarLogMensagem(input: {
   })
 }
 
+function getSaoPauloDayRange() {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+
+  const date = formatter.format(new Date())
+
+  return {
+    start: `${date}T00:00:00-03:00`,
+    end: `${date}T23:59:59.999-03:00`,
+  }
+}
+
+export async function loadRelatorioMensagemDia(usuarioId: string) {
+  const { start, end } = getSaoPauloDayRange()
+
+  const { data, error } = await supabaseAdmin
+    .schema(SCHEMA)
+    .from('mensagem_logs')
+    .select(
+      'id, fluxo, status_envio, nome_vendedor, cliente_nome, contato, telefone, http_status, erro, payload_entrada, payload_uazapi, created_at'
+    )
+    .eq('usuario_id', usuarioId)
+    .gte('created_at', start)
+    .lte('created_at', end)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data || []).map((item) => {
+    const payloadEntrada =
+      typeof item.payload_entrada === 'object' && item.payload_entrada !== null
+        ? (item.payload_entrada as Record<string, unknown>)
+        : {}
+    const payloadUazapi =
+      typeof item.payload_uazapi === 'object' && item.payload_uazapi !== null
+        ? (item.payload_uazapi as Record<string, unknown>)
+        : {}
+
+    return {
+      id: String(item.id),
+      fluxo: String(item.fluxo || ''),
+      status_envio: String(item.status_envio || ''),
+      nome_vendedor: item.nome_vendedor ? String(item.nome_vendedor) : null,
+      cliente_nome: item.cliente_nome ? String(item.cliente_nome) : null,
+      contato: item.contato ? String(item.contato) : null,
+      telefone: item.telefone ? String(item.telefone) : null,
+      http_status: typeof item.http_status === 'number' ? item.http_status : null,
+      erro: item.erro ? String(item.erro) : null,
+      mensagem: String(payloadEntrada.mensagem || payloadUazapi.text || ''),
+      created_at: String(item.created_at || ''),
+    } satisfies RelatorioMensagemDia
+  })
+}
+
 export async function handleMensagemWebhook(fluxo: FluxoMensagemKey, payload: unknown) {
+  const items = parseItems(payload)
   const payloadObject = parseObject(payload)
-  const { configuracao, cliente } = await resolveConfiguracaoDestino(payloadObject)
+
+  if (!items.length) {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: 'Nenhum item válido foi enviado no payload.' },
+    }
+  }
+
+  const { configuracao, cliente } = await resolveConfiguracaoDestino(items[0] || payloadObject)
 
   if (!configuracao) {
     await registrarLogMensagem({
@@ -376,56 +424,13 @@ export async function handleMensagemWebhook(fluxo: FluxoMensagemKey, payload: un
     }
   }
 
-  const template = await loadTemplateByUsuario(configuracao.usuario_id, fluxo)
-  if (!template?.conteudo?.trim()) {
-    await registrarLogMensagem({
-      fluxo,
-      usuarioId: configuracao.usuario_id,
-      nomeVendedor: configuracao.nome_vendedor,
-      clienteNome: cliente?.razao_social || null,
-      telefone: cliente?.whatsapp || null,
-      statusEnvio: 'erro',
-      erro: 'Template do fluxo não configurado.',
-      payloadEntrada: payloadObject,
-    })
-
-    return {
-      ok: false,
-      status: 409,
-      body: { error: 'Template do fluxo não configurado para este vendedor.' },
-    }
-  }
-
-  const telefone = resolveTelefoneMensagem({
-    ...payloadObject,
-    whatsapp: payloadObject.whatsapp || cliente?.whatsapp || '',
-  })
-
-  if (!telefone) {
-    await registrarLogMensagem({
-      fluxo,
-      usuarioId: configuracao.usuario_id,
-      nomeVendedor: configuracao.nome_vendedor,
-      clienteNome: cliente?.razao_social || null,
-      statusEnvio: 'erro',
-      erro: 'Telefone de destino não informado no payload.',
-      payloadEntrada: payloadObject,
-    })
-
-    return {
-      ok: false,
-      status: 400,
-      body: { error: 'Telefone de destino não informado.' },
-    }
-  }
-
   if (!configuracao.uazapi_instance || !configuracao.uazapi_token) {
     await registrarLogMensagem({
       fluxo,
       usuarioId: configuracao.usuario_id,
       nomeVendedor: configuracao.nome_vendedor,
       clienteNome: cliente?.razao_social || null,
-      telefone,
+      telefone: cliente?.whatsapp || null,
       statusEnvio: 'erro',
       erro: 'Server URL ou token da Uazapi não configurados.',
       payloadEntrada: payloadObject,
@@ -438,84 +443,134 @@ export async function handleMensagemWebhook(fluxo: FluxoMensagemKey, payload: un
     }
   }
 
-  const mensagem = renderMensagemTemplate(template.conteudo, payloadObject).trim()
-  if (!mensagem) {
-    await registrarLogMensagem({
-      fluxo,
-      usuarioId: configuracao.usuario_id,
-      nomeVendedor: configuracao.nome_vendedor,
-      clienteNome: cliente?.razao_social || null,
-      telefone,
-      statusEnvio: 'erro',
-      erro: 'Mensagem final ficou vazia após aplicar o template.',
-      payloadEntrada: payloadObject,
+  const sendUrl = buildUazapiSendUrl(configuracao.uazapi_instance)
+  const resultados: Array<Record<string, unknown>> = []
+  let sucesso = 0
+  let erro = 0
+
+  for (const item of items) {
+    const clienteItem = await resolveClienteMensagem(item)
+    const telefone = resolveTelefoneMensagem({
+      ...item,
+      whatsapp:
+        item.numero_destino || item.whatsapp || item.chatid || clienteItem?.whatsapp || '',
+    })
+    const mensagem = resolveMensagemPronta(item)
+
+    if (!telefone || !mensagem) {
+      erro += 1
+
+      await registrarLogMensagem({
+        fluxo,
+        usuarioId: configuracao.usuario_id,
+        nomeVendedor: configuracao.nome_vendedor,
+        clienteNome: clienteItem?.razao_social || null,
+        contato: String(item.contato || ''),
+        telefone: telefone || null,
+        statusEnvio: 'erro',
+        erro: !telefone
+          ? 'Telefone de destino não informado no payload.'
+          : 'Mensagem pronta não foi enviada no payload.',
+        payloadEntrada: item,
+      })
+
+      resultados.push({
+        ok: false,
+        telefone: telefone || null,
+        erro: !telefone
+          ? 'Telefone de destino não informado no payload.'
+          : 'Mensagem pronta não foi enviada no payload.',
+      })
+      continue
+    }
+
+    const payloadUazapi = {
+      number: telefone,
+      text: mensagem,
+    }
+
+    const response = await fetch(sendUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        token: configuracao.uazapi_token,
+      },
+      body: JSON.stringify(payloadUazapi),
     })
 
-    return {
-      ok: false,
-      status: 409,
-      body: { error: 'A mensagem final ficou vazia.' },
+    let respostaUazapi: Record<string, unknown> = {}
+    try {
+      respostaUazapi = (await response.json()) as Record<string, unknown>
+    } catch {
+      respostaUazapi = {}
     }
-  }
 
-  const sendUrl = buildUazapiSendUrl(configuracao.uazapi_instance)
-  const payloadUazapi = {
-    number: telefone,
-    text: mensagem,
-  }
+    if (!response.ok) {
+      erro += 1
 
-  const response = await fetch(sendUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      token: configuracao.uazapi_token,
-    },
-    body: JSON.stringify(payloadUazapi),
-  })
+      await registrarLogMensagem({
+        fluxo,
+        usuarioId: configuracao.usuario_id,
+        nomeVendedor: configuracao.nome_vendedor,
+        clienteNome: clienteItem?.razao_social || null,
+        contato: String(item.contato || ''),
+        telefone,
+        statusEnvio: 'erro',
+        erro: String(
+          respostaUazapi.message || respostaUazapi.error || 'Erro ao enviar pela Uazapi.'
+        ),
+        httpStatus: response.status,
+        payloadEntrada: item,
+        payloadUazapi,
+        respostaUazapi,
+      })
 
-  let respostaUazapi: Record<string, unknown> = {}
-  try {
-    respostaUazapi = (await response.json()) as Record<string, unknown>
-  } catch {
-    respostaUazapi = {}
-  }
+      resultados.push({
+        ok: false,
+        telefone,
+        erro: 'Erro ao enviar mensagem pela Uazapi.',
+        detalhe: respostaUazapi,
+      })
+      continue
+    }
 
-  if (!response.ok) {
+    sucesso += 1
+
     await registrarLogMensagem({
       fluxo,
       usuarioId: configuracao.usuario_id,
       nomeVendedor: configuracao.nome_vendedor,
-      clienteNome: cliente?.razao_social || null,
-      contato: String(payloadObject.contato || ''),
+      clienteNome: clienteItem?.razao_social || null,
+      contato: String(item.contato || ''),
       telefone,
-      statusEnvio: 'erro',
-      erro: String(respostaUazapi.message || respostaUazapi.error || 'Erro ao enviar pela Uazapi.'),
+      statusEnvio: 'sucesso',
       httpStatus: response.status,
-      payloadEntrada: payloadObject,
+      payloadEntrada: item,
       payloadUazapi,
       respostaUazapi,
     })
 
+    resultados.push({
+      ok: true,
+      telefone,
+      mensagem,
+      resposta_uazapi: respostaUazapi,
+    })
+  }
+
+  if (!sucesso) {
     return {
       ok: false,
       status: 502,
-      body: { error: 'Erro ao enviar mensagem pela Uazapi.', detalhe: respostaUazapi },
+      body: {
+        error: 'Nenhuma mensagem foi enviada com sucesso.',
+        fluxo,
+        sucesso,
+        erro,
+        resultados,
+      },
     }
   }
-
-  await registrarLogMensagem({
-    fluxo,
-    usuarioId: configuracao.usuario_id,
-    nomeVendedor: configuracao.nome_vendedor,
-    clienteNome: cliente?.razao_social || null,
-    contato: String(payloadObject.contato || ''),
-    telefone,
-    statusEnvio: 'sucesso',
-    httpStatus: response.status,
-    payloadEntrada: payloadObject,
-    payloadUazapi,
-    respostaUazapi,
-  })
 
   return {
     ok: true,
@@ -523,9 +578,9 @@ export async function handleMensagemWebhook(fluxo: FluxoMensagemKey, payload: un
     body: {
       ok: true,
       fluxo,
-      telefone,
-      mensagem,
-      resposta_uazapi: respostaUazapi,
+      sucesso,
+      erro,
+      resultados,
     },
   }
 }

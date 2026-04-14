@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { FLUXOS_MENSAGEM, FluxoMensagemKey, TemplateMensagem } from '@/lib/mensagem/config'
+import { useEffect, useMemo, useState } from 'react'
+import { FLUXOS_MENSAGEM } from '@/lib/mensagem/config'
 
 type Perfil = {
   nome: string | null
@@ -25,6 +25,20 @@ type ConfiguracaoMensagem = {
   nome_vendedor: string | null
 }
 
+type RelatorioMensagemDia = {
+  id: string
+  fluxo: string
+  status_envio: string
+  nome_vendedor: string | null
+  cliente_nome: string | null
+  contato: string | null
+  telefone: string | null
+  http_status: number | null
+  erro: string | null
+  mensagem: string
+  created_at: string
+}
+
 const EMPTY_CONFIG: ConfiguracaoMensagem = {
   uazapi_server_url: '',
   uazapi_token: '',
@@ -32,11 +46,16 @@ const EMPTY_CONFIG: ConfiguracaoMensagem = {
   nome_vendedor: null,
 }
 
-function buildTemplateMap(templates: TemplateMensagem[]) {
-  return templates.reduce<Record<string, TemplateMensagem>>((acc, template) => {
-    acc[template.fluxo] = template
-    return acc
-  }, {})
+function formatDateTime(value?: string | null) {
+  if (!value) return '-'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date)
 }
 
 export function CobrancaManagerModal({
@@ -52,8 +71,7 @@ export function CobrancaManagerModal({
   const [mensagem, setMensagem] = useState<string | null>(null)
   const [origin, setOrigin] = useState('')
   const [configuracao, setConfiguracao] = useState<ConfiguracaoMensagem>(EMPTY_CONFIG)
-  const [templates, setTemplates] = useState<Record<string, TemplateMensagem>>({})
-  const textareasRef = useRef<Record<string, HTMLTextAreaElement | null>>({})
+  const [relatorioDia, setRelatorioDia] = useState<RelatorioMensagemDia[]>([])
 
   useEffect(() => {
     setOrigin(window.location.origin)
@@ -84,7 +102,7 @@ export function CobrancaManagerModal({
         ativo: resultado.configuracao?.ativo !== false,
         nome_vendedor: resultado.configuracao?.nome_vendedor || null,
       })
-      setTemplates(buildTemplateMap((resultado.templates || []) as TemplateMensagem[]))
+      setRelatorioDia((resultado.relatorio_dia || []) as RelatorioMensagemDia[])
       setCarregando(false)
     }
 
@@ -100,78 +118,21 @@ export function CobrancaManagerModal({
       FLUXOS_MENSAGEM.map((fluxo) => ({
         ...fluxo,
         url: origin ? `${origin}${fluxo.path}` : fluxo.path,
-        template:
-          templates[fluxo.key] ||
-          ({
-            fluxo: fluxo.key,
-            nome_template: fluxo.titulo,
-            conteudo: fluxo.exemplo,
-            variaveis: [...fluxo.variaveis],
-          } satisfies TemplateMensagem),
       })),
-    [origin, templates]
+    [origin]
   )
-
-  function updateTemplate(fluxo: FluxoMensagemKey, field: 'nome_template' | 'conteudo', value: string) {
-    setTemplates((state) => ({
-      ...state,
-      [fluxo]: {
-        fluxo,
-        nome_template: state[fluxo]?.nome_template || FLUXOS_MENSAGEM.find((item) => item.key === fluxo)?.titulo || fluxo,
-        conteudo: state[fluxo]?.conteudo || '',
-        variaveis: state[fluxo]?.variaveis || [...(FLUXOS_MENSAGEM.find((item) => item.key === fluxo)?.variaveis || [])],
-        [field]: value,
-      },
-    }))
-  }
-
-  function inserirVariavel(fluxo: FluxoMensagemKey, variavel: string) {
-    const textarea = textareasRef.current[fluxo]
-    const token = `{${variavel}}`
-
-    if (!textarea) {
-      updateTemplate(
-        fluxo,
-        'conteudo',
-        `${templates[fluxo]?.conteudo || ''}${templates[fluxo]?.conteudo ? '\n' : ''}${token}`
-      )
-      return
-    }
-
-    const start = textarea.selectionStart ?? textarea.value.length
-    const end = textarea.selectionEnd ?? textarea.value.length
-    const atual = templates[fluxo]?.conteudo || ''
-    const proximo = `${atual.slice(0, start)}${token}${atual.slice(end)}`
-
-    updateTemplate(fluxo, 'conteudo', proximo)
-
-    requestAnimationFrame(() => {
-      textarea.focus()
-      const pos = start + token.length
-      textarea.setSelectionRange(pos, pos)
-    })
-  }
 
   async function salvar() {
     setSalvando(true)
     setErro(null)
     setMensagem(null)
 
-    const payload = {
-      ...configuracao,
-      templates: fluxos.map((fluxo) => ({
-        fluxo: fluxo.key,
-        nome_template: templates[fluxo.key]?.nome_template || fluxo.titulo,
-        conteudo: templates[fluxo.key]?.conteudo || '',
-      })),
-    }
-
     const response = await fetch('/api/mensagem/configuracao', {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(configuracao),
     })
 
     const resultado = await response.json()
@@ -188,7 +149,7 @@ export function CobrancaManagerModal({
       ativo: resultado.configuracao?.ativo !== false,
       nome_vendedor: resultado.configuracao?.nome_vendedor || null,
     })
-    setTemplates(buildTemplateMap((resultado.templates || []) as TemplateMensagem[]))
+    setRelatorioDia((resultado.relatorio_dia || []) as RelatorioMensagemDia[])
     setMensagem(resultado.message || 'Configuração de mensagem salva com sucesso.')
     setSalvando(false)
   }
@@ -259,34 +220,14 @@ export function CobrancaManagerModal({
             <div className="text-[11px] uppercase tracking-[0.24em] text-[#ffe1e4]/80">
               Em negociação
             </div>
-            <div className="mt-3 text-3xl font-semibold text-white">
-              {clientesEmNegociacao}
-            </div>
+            <div className="mt-3 text-3xl font-semibold text-white">{clientesEmNegociacao}</div>
             <div className="mt-2 text-sm text-[#ffe1e4]">
               Cliente com `em_negociacao = true` deve ficar fora da cobrança.
             </div>
           </div>
         </div>
 
-        <div className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
-          <div className="text-sm font-medium text-white">Regras operacionais fixas</div>
-          <div className="mt-3 grid gap-3 text-sm text-slate-300">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              O `n8n` continua definindo o público e o fluxo, mas a API de mensagem faz uma
-              proteção final e não envia para cliente bloqueado na régua.
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              O `n8n` continua no fluxo, porém chama apenas os webhooks internos do sistema,
-              e não mais a Uazapi diretamente.
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              Cada um dos 4 fluxos tem sua própria escuta para ser usada no `HTTP Request` do
-              `n8n`, e cada vendedor mantém o seu próprio template para aquele fluxo.
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
           <section className="rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -336,22 +277,22 @@ export function CobrancaManagerModal({
                       uazapi_token: event.target.value,
                     }))
                   }
-                  placeholder="Informe o token da sua instância"
+                  placeholder="Informe o token da instância"
                   className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
                 />
               </label>
             </div>
+
             <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
-              A API assume o link salvo aqui e completa automaticamente o envio para
-              <span className="mx-1 font-mono text-white">/send/text</span>
-              quando necessário.
+              O `n8n` entrega a mensagem pronta no payload. A API assume o `Server URL`, o
+              `token`, o `numero_destino` e faz o envio para a Uazapi.
             </div>
           </section>
 
           <section className="rounded-[24px] border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.1)] p-5">
             <div className="text-sm font-medium text-white">Escutas para o n8n</div>
             <div className="mt-1 text-sm text-[#d7eeff]">
-              Cada fluxo termina em um `HTTP Request` diferente dentro do `n8n`.
+              Cada fluxo continua com sua própria URL de webhook.
             </div>
 
             <div className="mt-4 grid gap-3">
@@ -374,82 +315,79 @@ export function CobrancaManagerModal({
         <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-medium text-white">Templates por fluxo</div>
+              <div className="text-sm font-medium text-white">Relatório do dia</div>
               <div className="mt-1 text-sm text-slate-400">
-                O vendedor edita a sua própria mensagem e escolhe as variáveis amigáveis do
-                payload recebido do `n8n`.
+                Mensagens enviadas hoje por este vendedor, já assumidas pela API interna.
               </div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
-              Exemplo de variável: <span className="font-mono text-white">{'{contato}'}</span>
+              {relatorioDia.length} envio(s) hoje
             </div>
           </div>
 
           {carregando ? (
             <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-6 text-sm text-slate-300">
-              Carregando configuração de mensagem...
+              Carregando relatório do dia...
+            </div>
+          ) : !relatorioDia.length ? (
+            <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-6 text-sm text-slate-300">
+              Nenhuma mensagem registrada hoje.
             </div>
           ) : (
-            <div className="mt-5 grid gap-4">
-              {fluxos.map((fluxo) => (
+            <div className="mt-5 grid gap-3">
+              {relatorioDia.map((item) => (
                 <div
-                  key={fluxo.key}
+                  key={item.id}
                   className="rounded-[24px] border border-white/10 bg-[rgba(10,16,29,0.18)] p-5"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <div className="text-base font-medium text-white">{fluxo.titulo}</div>
-                      <div className="mt-1 text-sm text-slate-400">{fluxo.descricao}</div>
+                      <div className="text-base font-medium text-white">
+                        {item.cliente_nome || item.contato || item.telefone || '-'}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-400">
+                        {item.fluxo} · {formatDateTime(item.created_at)}
+                      </div>
                     </div>
-                    <div className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs text-slate-300">
-                      Escuta: {fluxo.path}
+                    <div
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${
+                        item.status_envio === 'sucesso'
+                          ? 'bg-emerald-400/10 text-emerald-200'
+                          : 'bg-rose-500/10 text-rose-200'
+                      }`}
+                    >
+                      {item.status_envio}
                     </div>
                   </div>
 
-                  <div className="mt-4 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-                    <div className="grid gap-4">
-                      <label className="grid gap-2 text-sm text-slate-300">
-                        <span>Nome do template</span>
-                        <input
-                          value={templates[fluxo.key]?.nome_template || fluxo.titulo}
-                          onChange={(event) =>
-                            updateTemplate(fluxo.key, 'nome_template', event.target.value)
-                          }
-                          className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-                        />
-                      </label>
-
-                      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                        <div className="text-sm font-medium text-white">Variáveis disponíveis</div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {fluxo.variaveis.map((variavel) => (
-                            <button
-                              key={variavel}
-                              type="button"
-                              onClick={() => inserirVariavel(fluxo.key, variavel)}
-                              className="rounded-full border border-[rgba(81,150,206,0.28)] bg-[rgba(81,150,206,0.14)] px-3 py-1 text-xs text-[#d7eeff]"
-                            >
-                              {`{${variavel}}`}
-                            </button>
-                          ))}
-                        </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                        Telefone
                       </div>
+                      <div className="mt-1 text-white">{item.telefone || '-'}</div>
                     </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                        HTTP Status
+                      </div>
+                      <div className="mt-1 text-white">{item.http_status ?? '-'}</div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                        Erro
+                      </div>
+                      <div className="mt-1 text-white">{item.erro || '-'}</div>
+                    </div>
+                  </div>
 
-                    <label className="grid gap-2 text-sm text-slate-300">
-                      <span>Mensagem do fluxo</span>
-                      <textarea
-                        ref={(element) => {
-                          textareasRef.current[fluxo.key] = element
-                        }}
-                        rows={8}
-                        value={templates[fluxo.key]?.conteudo || fluxo.exemplo}
-                        onChange={(event) =>
-                          updateTemplate(fluxo.key, 'conteudo', event.target.value)
-                        }
-                        className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-                      />
-                    </label>
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                    <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                      Mensagem enviada
+                    </div>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-200">
+                      {item.mensagem || '-'}
+                    </pre>
                   </div>
                 </div>
               ))}
