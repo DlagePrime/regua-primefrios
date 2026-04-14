@@ -26,6 +26,14 @@ export type RelatorioMensagemDia = {
   created_at: string
 }
 
+type ConfiguracaoMensagemInput = {
+  usuarioId: string
+  uazapiServerUrl: string
+  uazapiToken: string
+  uazapiInstancia: string
+  ativo: boolean
+}
+
 type ClienteMensagemRow = {
   id: string
   cnpj_cpf: string | null
@@ -95,6 +103,23 @@ function buildUazapiSendUrl(value?: string | null) {
   return `${normalized}/send/text`
 }
 
+function resolveInstanciaPayload(payload: Record<string, unknown>) {
+  const instanciaDireta = String(
+    payload.uazapi_instance ||
+      payload.instancia ||
+      payload.instance ||
+      payload.instance_name ||
+      payload.owner ||
+      ''
+  ).trim()
+
+  if (instanciaDireta) {
+    return instanciaDireta
+  }
+
+  return null
+}
+
 export async function loadMensagemConfiguracao(usuarioId: string) {
   const { data: configuracao, error: configError } = await supabaseAdmin
     .schema(SCHEMA)
@@ -111,26 +136,21 @@ export async function loadMensagemConfiguracao(usuarioId: string) {
     configuracao: {
       uazapi_server_url: configuracao?.uazapi_instance || '',
       uazapi_token: configuracao?.uazapi_token || '',
+      uazapi_instancia: configuracao?.nome_vendedor || '',
       ativo: configuracao?.ativo !== false,
       nome_vendedor: configuracao?.nome_vendedor || null,
     },
   }
 }
 
-export async function saveMensagemConfiguracao(input: {
-  usuarioId: string
-  nomeVendedor: string | null
-  uazapiServerUrl: string
-  uazapiToken: string
-  ativo: boolean
-}) {
+export async function saveMensagemConfiguracao(input: ConfiguracaoMensagemInput) {
   const { error: configError } = await supabaseAdmin
     .schema(SCHEMA)
     .from('mensagem_vendedores')
     .upsert(
       {
         usuario_id: input.usuarioId,
-        nome_vendedor: input.nomeVendedor,
+        nome_vendedor: input.uazapiInstancia,
         uazapi_instance: normalizeUazapiServerUrl(input.uazapiServerUrl),
         uazapi_token: input.uazapiToken,
         ativo: input.ativo,
@@ -219,16 +239,9 @@ async function resolveConfiguracaoDestino(payload: Record<string, unknown>) {
   const payloadObject = parseObject(payload)
   const cliente = await resolveClienteMensagem(payloadObject)
 
-  const nomeVendedor =
-    String(
-      payload.nome_vendedor ||
-        payload.vendedor ||
-        payload.nome_vendedor_padrao_snapshot ||
-        cliente?.nome_vendedor_padrao_snapshot ||
-        ''
-    ).trim() || null
+  const instancia = resolveInstanciaPayload(payload)
 
-  if (!nomeVendedor) {
+  if (!instancia) {
     return {
       configuracao: null,
       cliente,
@@ -239,7 +252,7 @@ async function resolveConfiguracaoDestino(payload: Record<string, unknown>) {
     .schema(SCHEMA)
     .from('mensagem_vendedores')
     .select('usuario_id, nome_vendedor, uazapi_instance, uazapi_token, ativo')
-    .eq('nome_vendedor', nomeVendedor)
+    .eq('nome_vendedor', instancia)
     .maybeSingle<ConfiguracaoMensagemRow>()
 
   return {

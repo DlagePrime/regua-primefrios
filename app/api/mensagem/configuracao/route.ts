@@ -48,20 +48,23 @@ export async function PUT(request: Request) {
 
     const uazapiServerUrl = String(body.uazapi_server_url || body.uazapi_instance || '').trim()
     const uazapiToken = String(body.uazapi_token || '').trim()
+    const uazapiInstancia = String(
+      body.uazapi_instancia || body.instancia || body.instance || ''
+    ).trim()
     const ativo = body.ativo !== false
 
-    if (!uazapiServerUrl || !uazapiToken) {
+    if (!uazapiServerUrl || !uazapiToken || !uazapiInstancia) {
       return NextResponse.json(
-        { error: 'Informe o Server URL e o token da Uazapi.' },
+        { error: 'Informe a instância, o Server URL e o token da Uazapi.' },
         { status: 400 }
       )
     }
 
     await saveMensagemConfiguracao({
       usuarioId: auth.user.id,
-      nomeVendedor: auth.perfil.nome_vendedor,
       uazapiServerUrl,
       uazapiToken,
+      uazapiInstancia,
       ativo,
     })
 

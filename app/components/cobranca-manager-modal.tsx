@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { FLUXOS_MENSAGEM } from '@/lib/mensagem/config'
+import { useEffect, useState } from 'react'
 
 type Perfil = {
   nome: string | null
@@ -19,6 +18,7 @@ type Props = {
 }
 
 type ConfiguracaoMensagem = {
+  uazapi_instancia: string
   uazapi_server_url: string
   uazapi_token: string
   ativo: boolean
@@ -40,6 +40,7 @@ type RelatorioMensagemDia = {
 }
 
 const EMPTY_CONFIG: ConfiguracaoMensagem = {
+  uazapi_instancia: '',
   uazapi_server_url: '',
   uazapi_token: '',
   ativo: true,
@@ -69,13 +70,10 @@ export function CobrancaManagerModal({
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [mensagem, setMensagem] = useState<string | null>(null)
-  const [origin, setOrigin] = useState('')
   const [configuracao, setConfiguracao] = useState<ConfiguracaoMensagem>(EMPTY_CONFIG)
   const [relatorioDia, setRelatorioDia] = useState<RelatorioMensagemDia[]>([])
 
   useEffect(() => {
-    setOrigin(window.location.origin)
-
     let active = true
 
     async function carregarConfiguracao() {
@@ -97,6 +95,7 @@ export function CobrancaManagerModal({
       }
 
       setConfiguracao({
+        uazapi_instancia: resultado.configuracao?.uazapi_instancia || '',
         uazapi_server_url: resultado.configuracao?.uazapi_server_url || '',
         uazapi_token: resultado.configuracao?.uazapi_token || '',
         ativo: resultado.configuracao?.ativo !== false,
@@ -112,15 +111,6 @@ export function CobrancaManagerModal({
       active = false
     }
   }, [])
-
-  const fluxos = useMemo(
-    () =>
-      FLUXOS_MENSAGEM.map((fluxo) => ({
-        ...fluxo,
-        url: origin ? `${origin}${fluxo.path}` : fluxo.path,
-      })),
-    [origin]
-  )
 
   async function salvar() {
     setSalvando(true)
@@ -144,6 +134,7 @@ export function CobrancaManagerModal({
     }
 
     setConfiguracao({
+      uazapi_instancia: resultado.configuracao?.uazapi_instancia || '',
       uazapi_server_url: resultado.configuracao?.uazapi_server_url || '',
       uazapi_token: resultado.configuracao?.uazapi_token || '',
       ativo: resultado.configuracao?.ativo !== false,
@@ -227,13 +218,13 @@ export function CobrancaManagerModal({
           </div>
         </div>
 
-        <div className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="mt-5">
           <section className="rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-medium text-white">Setup do vendedor</div>
                 <div className="mt-1 text-sm text-slate-400">
-                  Cadastre aqui o Server URL e o token da sua Uazapi.
+                  Cadastre aqui a instância, o Server URL e o token da sua Uazapi.
                 </div>
               </div>
               <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
@@ -251,7 +242,22 @@ export function CobrancaManagerModal({
               </label>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <label className="grid gap-2 text-sm text-slate-300">
+                <span>Instância Uazapi</span>
+                <input
+                  value={configuracao.uazapi_instancia}
+                  onChange={(event) =>
+                    setConfiguracao((state) => ({
+                      ...state,
+                      uazapi_instancia: event.target.value,
+                    }))
+                  }
+                  placeholder="Ex: 553498436431"
+                  className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+                />
+              </label>
+
               <label className="grid gap-2 text-sm text-slate-300">
                 <span>Server URL</span>
                 <input
@@ -284,30 +290,8 @@ export function CobrancaManagerModal({
             </div>
 
             <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
-              O `n8n` entrega a mensagem pronta no payload. A API assume o `Server URL`, o
-              `token`, o `numero_destino` e faz o envio para a Uazapi.
-            </div>
-          </section>
-
-          <section className="rounded-[24px] border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.1)] p-5">
-            <div className="text-sm font-medium text-white">Escutas para o n8n</div>
-            <div className="mt-1 text-sm text-[#d7eeff]">
-              Cada fluxo continua com sua própria URL de webhook.
-            </div>
-
-            <div className="mt-4 grid gap-3">
-              {fluxos.map((fluxo) => (
-                <div
-                  key={fluxo.key}
-                  className="rounded-2xl border border-white/10 bg-[rgba(10,16,29,0.22)] p-4"
-                >
-                  <div className="text-sm font-medium text-white">{fluxo.titulo}</div>
-                  <div className="mt-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 font-mono text-xs text-[#d7eeff]">
-                    {fluxo.url}
-                  </div>
-                  <div className="mt-2 text-sm text-slate-300">{fluxo.descricao}</div>
-                </div>
-              ))}
+              O `n8n` entrega a mensagem pronta no payload. A API assume a `instância`, o
+              `Server URL`, o `token`, o `numero_destino` e faz o envio para a Uazapi.
             </div>
           </section>
         </div>
