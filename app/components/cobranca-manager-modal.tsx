@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { FLUXOS_MENSAGEM } from '@/lib/mensagem/config'
 
 type Perfil = {
   nome: string | null
@@ -25,38 +26,12 @@ type ConfiguracaoMensagem = {
   nome_vendedor: string | null
 }
 
-type RelatorioMensagemDia = {
-  id: string
-  fluxo: string
-  status_envio: string
-  nome_vendedor: string | null
-  cliente_nome: string | null
-  contato: string | null
-  telefone: string | null
-  http_status: number | null
-  erro: string | null
-  mensagem: string
-  created_at: string
-}
-
 const EMPTY_CONFIG: ConfiguracaoMensagem = {
   uazapi_instancia: '',
   uazapi_server_url: '',
   uazapi_token: '',
   ativo: true,
   nome_vendedor: null,
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return '-'
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(date)
 }
 
 export function CobrancaManagerModal({
@@ -70,10 +45,12 @@ export function CobrancaManagerModal({
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [mensagem, setMensagem] = useState<string | null>(null)
+  const [origin, setOrigin] = useState('')
   const [configuracao, setConfiguracao] = useState<ConfiguracaoMensagem>(EMPTY_CONFIG)
-  const [relatorioDia, setRelatorioDia] = useState<RelatorioMensagemDia[]>([])
 
   useEffect(() => {
+    setOrigin(window.location.origin)
+
     let active = true
 
     async function carregarConfiguracao() {
@@ -101,7 +78,6 @@ export function CobrancaManagerModal({
         ativo: resultado.configuracao?.ativo !== false,
         nome_vendedor: resultado.configuracao?.nome_vendedor || null,
       })
-      setRelatorioDia((resultado.relatorio_dia || []) as RelatorioMensagemDia[])
       setCarregando(false)
     }
 
@@ -111,6 +87,15 @@ export function CobrancaManagerModal({
       active = false
     }
   }, [])
+
+  const fluxos = useMemo(
+    () =>
+      FLUXOS_MENSAGEM.map((fluxo) => ({
+        ...fluxo,
+        url: origin ? `${origin}${fluxo.path}` : fluxo.path,
+      })),
+    [origin]
+  )
 
   async function salvar() {
     setSalvando(true)
@@ -140,7 +125,6 @@ export function CobrancaManagerModal({
       ativo: resultado.configuracao?.ativo !== false,
       nome_vendedor: resultado.configuracao?.nome_vendedor || null,
     })
-    setRelatorioDia((resultado.relatorio_dia || []) as RelatorioMensagemDia[])
     setMensagem(resultado.message || 'Configuração de mensagem salva com sucesso.')
     setSalvando(false)
   }
@@ -218,7 +202,7 @@ export function CobrancaManagerModal({
           </div>
         </div>
 
-        <div className="mt-5">
+        <div className={`mt-5 grid gap-5 ${perfil?.perfil === 'master' ? 'xl:grid-cols-[1.05fr_0.95fr]' : ''}`}>
           <section className="rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -294,90 +278,31 @@ export function CobrancaManagerModal({
               `Server URL`, o `token`, o `numero_destino` e faz o envio para a Uazapi.
             </div>
           </section>
-        </div>
 
-        <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="text-sm font-medium text-white">Relatório do dia</div>
-              <div className="mt-1 text-sm text-slate-400">
-                Mensagens enviadas hoje por este vendedor, já assumidas pela API interna.
+          {perfil?.perfil === 'master' && (
+            <section className="rounded-[24px] border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.1)] p-5">
+              <div className="text-sm font-medium text-white">Escutas para o n8n</div>
+              <div className="mt-1 text-sm text-[#d7eeff]">
+                Visualização técnica disponível apenas para o perfil master.
               </div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
-              {relatorioDia.length} envio(s) hoje
-            </div>
-          </div>
 
-          {carregando ? (
-            <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-6 text-sm text-slate-300">
-              Carregando relatório do dia...
-            </div>
-          ) : !relatorioDia.length ? (
-            <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-6 text-sm text-slate-300">
-              Nenhuma mensagem registrada hoje.
-            </div>
-          ) : (
-            <div className="mt-5 grid gap-3">
-              {relatorioDia.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-[24px] border border-white/10 bg-[rgba(10,16,29,0.18)] p-5"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-base font-medium text-white">
-                        {item.cliente_nome || item.contato || item.telefone || '-'}
-                      </div>
-                      <div className="mt-1 text-sm text-slate-400">
-                        {item.fluxo} · {formatDateTime(item.created_at)}
-                      </div>
+              <div className="mt-4 grid gap-3">
+                {fluxos.map((fluxo) => (
+                  <div
+                    key={fluxo.key}
+                    className="rounded-2xl border border-white/10 bg-[rgba(10,16,29,0.22)] p-4"
+                  >
+                    <div className="text-sm font-medium text-white">{fluxo.titulo}</div>
+                    <div className="mt-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 font-mono text-xs text-[#d7eeff]">
+                      {fluxo.url}
                     </div>
-                    <div
-                      className={`rounded-full px-3 py-1 text-xs font-medium ${
-                        item.status_envio === 'sucesso'
-                          ? 'bg-emerald-400/10 text-emerald-200'
-                          : 'bg-rose-500/10 text-rose-200'
-                      }`}
-                    >
-                      {item.status_envio}
-                    </div>
+                    <div className="mt-2 text-sm text-slate-300">{fluxo.descricao}</div>
                   </div>
-
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
-                        Telefone
-                      </div>
-                      <div className="mt-1 text-white">{item.telefone || '-'}</div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
-                        HTTP Status
-                      </div>
-                      <div className="mt-1 text-white">{item.http_status ?? '-'}</div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
-                        Erro
-                      </div>
-                      <div className="mt-1 text-white">{item.erro || '-'}</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                    <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
-                      Mensagem enviada
-                    </div>
-                    <pre className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-200">
-                      {item.mensagem || '-'}
-                    </pre>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </section>
           )}
-        </section>
+        </div>
 
         <div className="mt-5 flex flex-wrap justify-end gap-3">
           <button
