@@ -73,6 +73,11 @@ function formatTitulosResumo(value: unknown) {
 }
 
 export function resolveTelefoneMensagem(payload: Payload) {
+  const nestedBody =
+    typeof payload.body === 'object' && payload.body !== null
+      ? (payload.body as Payload)
+      : null
+
   const raw = asString(
     pickFirst(payload, [
       'numero_destino',
@@ -87,7 +92,20 @@ export function resolveTelefoneMensagem(payload: Payload) {
     ])
   )
 
-  return raw.replace(/@.*$/i, '').replace(/\D/g, '')
+  const nestedRaw = nestedBody
+    ? asString(
+        pickFirst(nestedBody, [
+          'number',
+          'numero_destino',
+          'whatsapp',
+          'chatid',
+          'telefone',
+          'numero',
+        ])
+      )
+    : ''
+
+  return (raw || nestedRaw).replace(/@.*$/i, '').replace(/\D/g, '')
 }
 
 export function buildMensagemTemplateContext(payload: Payload) {

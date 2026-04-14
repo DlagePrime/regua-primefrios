@@ -78,8 +78,24 @@ function resolveMensagemPronta(payload: Record<string, unknown>) {
     typeof payload.content === 'object' && payload.content !== null
       ? (payload.content as Record<string, unknown>)
       : {}
+  const nestedBody =
+    typeof payload.body === 'object' && payload.body !== null
+      ? (payload.body as Record<string, unknown>)
+      : {}
+  const nestedContent =
+    typeof nestedBody.content === 'object' && nestedBody.content !== null
+      ? (nestedBody.content as Record<string, unknown>)
+      : {}
 
-  return String(payload.mensagem || payload.text || content.text || payload.texto || '')
+  return String(
+    payload.mensagem ||
+      payload.text ||
+      content.text ||
+      payload.texto ||
+      nestedBody.text ||
+      nestedContent.text ||
+      ''
+  )
     .replace(/\r\n/g, '\n')
     .trim()
 }
@@ -104,17 +120,20 @@ function buildUazapiSendUrl(value?: string | null) {
 }
 
 function resolveInstanciaPayload(payload: Record<string, unknown>) {
-  const instanciaDireta = String(
-    payload.uazapi_instance ||
-      payload.instancia ||
-      payload.instance ||
-      payload.instance_name ||
-      payload.owner ||
-      ''
-  ).trim()
+  const candidates = [
+    payload.uazapi_instance,
+    payload.instancia,
+    payload.instance,
+    payload.instance_name,
+    payload.owner,
+    payload.sender,
+  ]
 
-  if (instanciaDireta) {
-    return instanciaDireta
+  for (const candidate of candidates) {
+    const value = String(candidate || '').replace(/@.*$/i, '').trim()
+    if (value) {
+      return value
+    }
   }
 
   return null
@@ -241,22 +260,39 @@ async function resolveConfiguracaoDestino(payload: Record<string, unknown>) {
 
   const instancia = resolveInstanciaPayload(payload)
 
-  if (!instancia) {
+  if (instancia) {
+    const { data: configuracaoPorInstancia } = await supabaseAdmin
+      .schema(SCHEMA)
+      .from('mensagem_vendedores')
+      .select('usuario_id, nome_vendedor, uazapi_instance, uazapi_token, ativo')
+      .eq('nome_vendedor', instancia)
+      .maybeSingle<ConfiguracaoMensagemRow>()
+
+    if (configuracaoPorInstancia) {
+      return {
+        configuracao: configuracaoPorInstancia,
+        cliente,
+      }
+    }
+  }
+
+  const { data: configuracoesAtivas } = await supabaseAdmin
+    .schema(SCHEMA)
+    .from('mensagem_vendedores')
+    .select('usuario_id, nome_vendedor, uazapi_instance, uazapi_token, ativo')
+    .eq('ativo', true)
+    .limit(2)
+    .returns<ConfiguracaoMensagemRow[]>()
+
+  if ((configuracoesAtivas || []).length === 1) {
     return {
-      configuracao: null,
+      configuracao: configuracoesAtivas?.[0] || null,
       cliente,
     }
   }
 
-  const { data: configuracao } = await supabaseAdmin
-    .schema(SCHEMA)
-    .from('mensagem_vendedores')
-    .select('usuario_id, nome_vendedor, uazapi_instance, uazapi_token, ativo')
-    .eq('nome_vendedor', instancia)
-    .maybeSingle<ConfiguracaoMensagemRow>()
-
   return {
-    configuracao: configuracao || null,
+    configuracao: null,
     cliente,
   }
 }
