@@ -43,6 +43,25 @@ function parseObject(value: unknown) {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
 }
 
+function normalizeUazapiServerUrl(value?: string | null) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+  return withProtocol.replace(/\/$/, '')
+}
+
+function buildUazapiSendUrl(value?: string | null) {
+  const normalized = normalizeUazapiServerUrl(value)
+  if (!normalized) return ''
+
+  if (/\/send\/text$/i.test(normalized)) {
+    return normalized
+  }
+
+  return `${normalized}/send/text`
+}
+
 export async function loadMensagemConfiguracao(usuarioId: string) {
   const { data: configuracao, error: configError } = await supabaseAdmin
     .schema(SCHEMA)
@@ -81,7 +100,7 @@ export async function loadMensagemConfiguracao(usuarioId: string) {
 
   return {
     configuracao: {
-      uazapi_instance: configuracao?.uazapi_instance || '',
+      uazapi_server_url: configuracao?.uazapi_instance || '',
       uazapi_token: configuracao?.uazapi_token || '',
       ativo: configuracao?.ativo !== false,
       nome_vendedor: configuracao?.nome_vendedor || null,
@@ -93,7 +112,7 @@ export async function loadMensagemConfiguracao(usuarioId: string) {
 export async function saveMensagemConfiguracao(input: {
   usuarioId: string
   nomeVendedor: string | null
-  uazapiInstance: string
+  uazapiServerUrl: string
   uazapiToken: string
   ativo: boolean
   templates: TemplateMensagem[]
@@ -105,7 +124,7 @@ export async function saveMensagemConfiguracao(input: {
       {
         usuario_id: input.usuarioId,
         nome_vendedor: input.nomeVendedor,
-        uazapi_instance: input.uazapiInstance,
+        uazapi_instance: normalizeUazapiServerUrl(input.uazapiServerUrl),
         uazapi_token: input.uazapiToken,
         ativo: input.ativo,
       },
@@ -408,14 +427,14 @@ export async function handleMensagemWebhook(fluxo: FluxoMensagemKey, payload: un
       clienteNome: cliente?.razao_social || null,
       telefone,
       statusEnvio: 'erro',
-      erro: 'Instância ou token da Uazapi não configurados.',
+      erro: 'Server URL ou token da Uazapi não configurados.',
       payloadEntrada: payloadObject,
     })
 
     return {
       ok: false,
       status: 409,
-      body: { error: 'Instância ou token da Uazapi não configurados.' },
+      body: { error: 'Server URL ou token da Uazapi não configurados.' },
     }
   }
 
@@ -439,25 +458,20 @@ export async function handleMensagemWebhook(fluxo: FluxoMensagemKey, payload: un
     }
   }
 
-  const baseUrl = (process.env.UAZAPI_BASE_URL || 'https://api.uazapi.com').replace(/\/$/, '')
+  const sendUrl = buildUazapiSendUrl(configuracao.uazapi_instance)
   const payloadUazapi = {
     number: telefone,
-    textMessage: {
-      text: mensagem,
-    },
+    text: mensagem,
   }
 
-  const response = await fetch(
-    `${baseUrl}/message/sendText/${encodeURIComponent(configuracao.uazapi_instance)}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: configuracao.uazapi_token,
-      },
-      body: JSON.stringify(payloadUazapi),
-    }
-  )
+  const response = await fetch(sendUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      token: configuracao.uazapi_token,
+    },
+    body: JSON.stringify(payloadUazapi),
+  })
 
   let respostaUazapi: Record<string, unknown> = {}
   try {

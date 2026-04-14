@@ -19,14 +19,14 @@ type Props = {
 }
 
 type ConfiguracaoMensagem = {
-  uazapi_instance: string
+  uazapi_server_url: string
   uazapi_token: string
   ativo: boolean
   nome_vendedor: string | null
 }
 
 const EMPTY_CONFIG: ConfiguracaoMensagem = {
-  uazapi_instance: '',
+  uazapi_server_url: '',
   uazapi_token: '',
   ativo: true,
   nome_vendedor: null,
@@ -79,7 +79,7 @@ export function CobrancaManagerModal({
       }
 
       setConfiguracao({
-        uazapi_instance: resultado.configuracao?.uazapi_instance || '',
+        uazapi_server_url: resultado.configuracao?.uazapi_server_url || '',
         uazapi_token: resultado.configuracao?.uazapi_token || '',
         ativo: resultado.configuracao?.ativo !== false,
         nome_vendedor: resultado.configuracao?.nome_vendedor || null,
@@ -183,7 +183,7 @@ export function CobrancaManagerModal({
     }
 
     setConfiguracao({
-      uazapi_instance: resultado.configuracao?.uazapi_instance || '',
+      uazapi_server_url: resultado.configuracao?.uazapi_server_url || '',
       uazapi_token: resultado.configuracao?.uazapi_token || '',
       ativo: resultado.configuracao?.ativo !== false,
       nome_vendedor: resultado.configuracao?.nome_vendedor || null,
@@ -292,7 +292,7 @@ export function CobrancaManagerModal({
               <div>
                 <div className="text-sm font-medium text-white">Setup do vendedor</div>
                 <div className="mt-1 text-sm text-slate-400">
-                  Cadastre aqui a sua instância e o seu token da Uazapi.
+                  Cadastre aqui o Server URL e o token da sua Uazapi.
                 </div>
               </div>
               <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
@@ -312,16 +312,16 @@ export function CobrancaManagerModal({
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="grid gap-2 text-sm text-slate-300">
-                <span>Instância Uazapi</span>
+                <span>Server URL</span>
                 <input
-                  value={configuracao.uazapi_instance}
+                  value={configuracao.uazapi_server_url}
                   onChange={(event) =>
                     setConfiguracao((state) => ({
                       ...state,
-                      uazapi_instance: event.target.value,
+                      uazapi_server_url: event.target.value,
                     }))
                   }
-                  placeholder="Ex: vendedor-prime-01"
+                  placeholder="Ex: https://primefrioscom.uazapi.com"
                   className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
                 />
               </label>
@@ -340,6 +340,11 @@ export function CobrancaManagerModal({
                   className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
                 />
               </label>
+            </div>
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+              A API assume o link salvo aqui e completa automaticamente o envio para
+              <span className="mx-1 font-mono text-white">/send/text</span>
+              quando necessário.
             </div>
           </section>
 

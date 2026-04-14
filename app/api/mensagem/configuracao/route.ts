@@ -41,7 +41,7 @@ export async function PUT(request: Request) {
 
     const body = await request.json()
 
-    const uazapiInstance = String(body.uazapi_instance || '').trim()
+    const uazapiServerUrl = String(body.uazapi_server_url || body.uazapi_instance || '').trim()
     const uazapiToken = String(body.uazapi_token || '').trim()
     const ativo = body.ativo !== false
     const templatesBody: unknown[] = Array.isArray(body.templates) ? body.templates : []
@@ -69,9 +69,9 @@ export async function PUT(request: Request) {
       }
     })
 
-    if (!uazapiInstance || !uazapiToken) {
+    if (!uazapiServerUrl || !uazapiToken) {
       return NextResponse.json(
-        { error: 'Informe a instância e o token da Uazapi.' },
+        { error: 'Informe o Server URL e o token da Uazapi.' },
         { status: 400 }
       )
     }
@@ -87,7 +87,7 @@ export async function PUT(request: Request) {
     await saveMensagemConfiguracao({
       usuarioId: auth.user.id,
       nomeVendedor: auth.perfil.nome_vendedor,
-      uazapiInstance,
+      uazapiServerUrl,
       uazapiToken,
       ativo,
       templates,
