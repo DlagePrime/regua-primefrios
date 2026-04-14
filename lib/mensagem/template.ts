@@ -80,6 +80,7 @@ export function resolveTelefoneMensagem(payload: Payload) {
 
   const raw = asString(
     pickFirst(payload, [
+      'number',
       'numero_destino',
       'whatsapp',
       'chatid',
