@@ -66,7 +66,7 @@ export function CobrancaManagerModal({
       if (!active) return
 
       if (!response.ok) {
-        setErro(resultado.error || 'Erro ao carregar a configuração de mensagem.')
+        setErro(resultado.error || 'Erro ao carregar a configuracao de mensagem.')
         setCarregando(false)
         return
       }
@@ -113,7 +113,7 @@ export function CobrancaManagerModal({
     const resultado = await response.json()
 
     if (!response.ok) {
-      setErro(resultado.error || 'Erro ao salvar a configuração de mensagem.')
+      setErro(resultado.error || 'Erro ao salvar a configuracao de mensagem.')
       setSalvando(false)
       return
     }
@@ -125,7 +125,7 @@ export function CobrancaManagerModal({
       ativo: resultado.configuracao?.ativo !== false,
       nome_vendedor: resultado.configuracao?.nome_vendedor || null,
     })
-    setMensagem(resultado.message || 'Configuração de mensagem salva com sucesso.')
+    setMensagem(resultado.message || 'Configuracao de mensagem salva com sucesso.')
     setSalvando(false)
   }
 
@@ -141,9 +141,9 @@ export function CobrancaManagerModal({
         <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5">
           <div>
             <div className="text-xs uppercase tracking-[0.28em] text-slate-400">
-              Gestão de cobrança
+              Gestao de cobranca
             </div>
-            <h2 className="mt-2 text-2xl font-semibold text-white">Gerenciar cobrança</h2>
+            <h2 className="mt-2 text-2xl font-semibold text-white">Gerenciar cobranca</h2>
             <div className="mt-2 text-sm text-slate-400">
               {perfil?.nome || perfil?.email || '-'}
               {configuracao.nome_vendedor ? ` · Vendedor ${configuracao.nome_vendedor}` : ''}
@@ -177,7 +177,7 @@ export function CobrancaManagerModal({
             </div>
             <div className="mt-3 text-3xl font-semibold text-white">{clientesAptos}</div>
             <div className="mt-2 text-sm text-[#dce9d6]">
-              Cliente com régua liberada e sem negociação ativa.
+              Cliente com regua liberada e sem negociacao ativa.
             </div>
           </div>
 
@@ -193,24 +193,25 @@ export function CobrancaManagerModal({
 
           <div className="rounded-[24px] border border-[rgba(254,132,146,0.28)] bg-[rgba(254,132,146,0.16)] p-5">
             <div className="text-[11px] uppercase tracking-[0.24em] text-[#ffe1e4]/80">
-              Em negociação
+              Em negociacao
             </div>
             <div className="mt-3 text-3xl font-semibold text-white">{clientesEmNegociacao}</div>
             <div className="mt-2 text-sm text-[#ffe1e4]">
-              Cliente com `em_negociacao = true` deve ficar fora da cobrança.
+              Cliente com `em_negociacao = true` deve ficar fora da cobranca.
             </div>
           </div>
         </div>
 
-        <div className={`mt-5 grid gap-5 ${perfil?.perfil === 'master' ? 'xl:grid-cols-[1.05fr_0.95fr]' : ''}`}>
+        <div className="mt-5 space-y-5">
           <section className="rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-medium text-white">Setup do vendedor</div>
                 <div className="mt-1 text-sm text-slate-400">
-                  Cadastre aqui a instância, o Server URL e o token da sua Uazapi.
+                  Cadastre aqui a instancia, o Server URL e o token da sua Uazapi.
                 </div>
               </div>
+
               <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
                 <input
                   type="checkbox"
@@ -222,60 +223,82 @@ export function CobrancaManagerModal({
                     }))
                   }
                 />
-                Configuração ativa
+                Configuracao ativa
               </label>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <label className="grid gap-2 text-sm text-slate-300">
-                <span>Instância Uazapi</span>
-                <input
-                  value={configuracao.uazapi_instancia}
-                  onChange={(event) =>
-                    setConfiguracao((state) => ({
-                      ...state,
-                      uazapi_instancia: event.target.value,
-                    }))
-                  }
-                  placeholder="Ex: 553498436431"
-                  className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-                />
-              </label>
+            <div className="mt-5 space-y-5">
+              <div className="grid gap-4 xl:grid-cols-[0.82fr_1.18fr]">
+                <div className="grid gap-4">
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    <span>Instancia Uazapi</span>
+                    <input
+                      value={configuracao.uazapi_instancia}
+                      onChange={(event) =>
+                        setConfiguracao((state) => ({
+                          ...state,
+                          uazapi_instancia: event.target.value,
+                        }))
+                      }
+                      placeholder="Ex: 553498436431"
+                      className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+                    />
+                  </label>
 
-              <label className="grid gap-2 text-sm text-slate-300">
-                <span>Server URL</span>
-                <input
-                  value={configuracao.uazapi_server_url}
-                  onChange={(event) =>
-                    setConfiguracao((state) => ({
-                      ...state,
-                      uazapi_server_url: event.target.value,
-                    }))
-                  }
-                  placeholder="Ex: https://primefrioscom.uazapi.com"
-                  className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-                />
-              </label>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+                    Use aqui a mesma identificacao operacional da instancia que dispara as
+                    mensagens. Esse campo faz a ligacao do vendedor com o canal real de
+                    envio.
+                  </div>
+                </div>
 
-              <label className="grid gap-2 text-sm text-slate-300">
-                <span>Token Uazapi</span>
-                <input
-                  value={configuracao.uazapi_token}
-                  onChange={(event) =>
-                    setConfiguracao((state) => ({
-                      ...state,
-                      uazapi_token: event.target.value,
-                    }))
-                  }
-                  placeholder="Informe o token da instância"
-                  className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-                />
-              </label>
-            </div>
+                <div className="grid gap-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="grid gap-2 text-sm text-slate-300">
+                      <span>Server URL</span>
+                      <input
+                        value={configuracao.uazapi_server_url}
+                        onChange={(event) =>
+                          setConfiguracao((state) => ({
+                            ...state,
+                            uazapi_server_url: event.target.value,
+                          }))
+                        }
+                        placeholder="Ex: https://primefrioscom.uazapi.com"
+                        className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+                      />
+                    </label>
 
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
-              O `n8n` entrega a mensagem pronta no payload. A API assume a `instância`, o
-              `Server URL`, o `token`, o `numero_destino` e faz o envio para a Uazapi.
+                    <label className="grid gap-2 text-sm text-slate-300">
+                      <span>Token Uazapi</span>
+                      <input
+                        value={configuracao.uazapi_token}
+                        onChange={(event) =>
+                          setConfiguracao((state) => ({
+                            ...state,
+                            uazapi_token: event.target.value,
+                          }))
+                        }
+                        placeholder="Informe o token da instancia"
+                        className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+                      O `n8n` entrega a mensagem pronta no payload. A API assume a
+                      `instancia`, o `Server URL`, o `token`, o `numero_destino` e faz o
+                      envio para a Uazapi.
+                    </div>
+
+                    <div className="rounded-2xl border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.08)] p-4 text-sm text-[#d7eeff]">
+                      A leitura foi organizada em secoes horizontais para reduzir quebra
+                      visual e deixar o setup mais estavel em desktop, tablet e mobile.
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -283,10 +306,10 @@ export function CobrancaManagerModal({
             <section className="rounded-[24px] border border-[rgba(81,150,206,0.24)] bg-[rgba(81,150,206,0.1)] p-5">
               <div className="text-sm font-medium text-white">Escutas para o n8n</div>
               <div className="mt-1 text-sm text-[#d7eeff]">
-                Visualização técnica disponível apenas para o perfil master.
+                Visualizacao tecnica disponivel apenas para o perfil master.
               </div>
 
-              <div className="mt-4 grid gap-3">
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
                 {fluxos.map((fluxo) => (
                   <div
                     key={fluxo.key}
@@ -320,7 +343,7 @@ export function CobrancaManagerModal({
                 : 'bg-[rgba(81,150,206,0.92)]'
             }`}
           >
-            {salvando ? 'Salvando...' : 'Salvar configuração'}
+            {salvando ? 'Salvando...' : 'Salvar configuracao'}
           </button>
         </div>
       </div>
